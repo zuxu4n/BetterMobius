@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Möbius+",
+  "version": "1.0.0",
+  "description": "Adds playback speed and jumping between sentences to narrated Möbius (mobius.cloud) lecture slides, plus a drawing tool and a calculator.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.mobius.cloud/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}
