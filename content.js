@@ -1172,7 +1172,11 @@
       padding: "8px",
       display: "flex",
       flexDirection: "column",
-      alignItems: "center",
+      // flex-end, not center: the undo/redo row is wider than a single
+      // circle, so centering would leave every circle adrift in the middle
+      // of that extra width instead of flush against the same right edge
+      // the calculator and launcher share.
+      alignItems: "flex-end",
       gap: "6px",
     });
 
