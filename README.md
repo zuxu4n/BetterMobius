@@ -14,8 +14,8 @@ lecture slides, which ship with no speed option of their own.
 
 **Playback speed.** A gear button sits in the player bar, just right of the
 time readout. Clicking it opens a settings panel with a **Playback speed** row
-that drills into a rate picker: 0.5x up to 3x. A small blue dot on the gear
-means that player isn't at 1x.
+that drills into a rate picker: 0.5x up to 3x. Whenever a player isn't at 1x,
+its speed (e.g. **1.5x**) shows in blue right beside the gear.
 
 Each player on a page keeps its own rate, and the rate resets to 1x whenever the
 page reloads — nothing is stored.
@@ -28,23 +28,38 @@ while typing in a text field. `Esc` closes the settings panel.
 explains that they're still being worked on. See below.
 
 **Drawing and a calculator.** A round purple button sits under the page title,
-near the right. Clicking it drops two separate panels: right under the button,
-its own narrow panel with the draw tools stacked in a column — three pen
-colors (black, red, blue), an arrow ("unselect"), an eraser, and undo/redo
-as a side-by-side pair underneath — and below that a calculator (the four operations, a sign toggle, backspace and a running
-display — also usable from the keyboard while the panel has focus). A small
-**fx**/**123** button in its corner switches it into scientific mode: the
-panel widens and a second column of function keys appears — sin, cos, tan,
-log, ln, √, x², xʸ, π and e (trig in degrees). Toggling back to basic shrinks
-it again; reopening the toolbox always starts back in basic mode.
+near the right. Clicking it drops a narrow panel right under the button, with
+the draw tools stacked in a column — undo above redo at the top,
+then three pen colors (black, red, blue), an arrow ("unselect"), an eraser,
+and a calculator button at the bottom. That button opens the calculator as its
+own separate panel below. It takes input like a phone or scientific
+calculator: the whole expression builds up on screen as you type
+(`2+3×4`), with a live preview of the answer under it, and is worked out with
+normal precedence when you press `=`. The result then shows large with the
+expression above it. After that a digit starts a new calculation, while an
+operator carries on from the result. Pressing an operator twice replaces the
+first one, except a minus after ×, ÷ or ^, which makes the next number
+negative. ± flips the sign of the number being typed, ⌫ takes back one key
+press, and C clears everything except Ans. It also works from the keyboard
+while the panel has focus: digits, `+ - * / ^ ( ) !`, Enter, Backspace, and
+Delete to clear. Clicking the calculator button again hides the panel rather
+than throwing it away: what's typed, scientific mode and a dragged-away
+position all survive being closed and reopened this way, for as long as the
+toolbox itself stays open. A small **fx**/**123** button in its corner switches
+it into scientific mode, which widens the panel and adds three columns of
+keys: brackets, Ans, sin, cos, tan, log, ln, √, x², xʸ, 1/x, π, e and n! (trig
+in degrees). Functions open their own bracket, as in `sin(`, and any brackets
+left open are shown faintly and closed for you on `=`. Only closing the
+whole toolbox (the launcher again, or `Esc`) actually resets the calculator,
+back to basic mode with nothing entered, docked under the launcher again.
 
-The calculator can be dragged by its top strip (where the fx/123 button
-sits) to anywhere on screen, and hovering that strip specifically (not the
-calculator in general) fades in a light gray ring around the whole panel so
-it's clear it's grabbable. Once moved it becomes a floating window - fixed to the
+The calculator can be dragged by its top strip (marked with a six-dot grip
+at its left end, with the fx/123 button at its right) to anywhere on screen,
+and hovering that strip specifically (not the calculator in general) fades in
+a light gray ring around the whole panel so it's clear it's grabbable. Once moved it becomes a floating window - fixed to the
 viewport rather than the page, so it stays where you put it as you scroll -
 independent of the draw-tools panel, which stays docked under the launcher.
-It snaps back under the launcher the next time the toolbox is opened. Toggling
+Toggling
 scientific mode after it's been dragged keeps its right edge fixed and
 grows/shrinks it to the left, the same edge it's anchored to while docked, so
 it doesn't drift across the screen each time it's resized - clamped back onto
@@ -61,11 +76,29 @@ mark away along with them; there's no separate close button on either panel.
 **Undo** and **redo** step back and forward through the strokes (pen or
 eraser alike) one at a time and dim out once there's nothing left in that
 direction; drawing a new stroke after an undo drops whatever was left to
-redo. The drawing layer never paints over the launcher button itself, no
-matter how a stroke crosses it, so it always stays visible and clickable.
+redo. The launcher button sits above the drawing layer, so it always stays
+visible and clickable.
 
-The toolbar is part of the page rather than pinned to the window, so it scrolls
-out of sight along with the title above it, same as the launcher button.
+The launcher is pinned to the window and stays at the same spot on screen as
+you scroll, with the draw-tools panel (and the docked calculator) hanging
+under it. Marks, by contrast, scroll with the page. When the window is wide
+enough, the launcher sits in the empty margin just right of the lecture
+content, so the pinned tools never cover the lecture. On a narrower window it
+sits inside the content's right edge, under the page title, instead.
+
+**Look and feel.** Panels fade in quickly as they open. Tool buttons lift
+slightly on hover, and undo/redo look and act disabled when there's nothing
+to undo or redo. On the calculator, the operators are tinted blue, the editing
+keys (C ⌫ ±) are a lighter grey, and digits are the darkest. Panels share one
+corner radius and one font.
+
+**Keyboard and screen readers.** Every button (gear, menu rows, launcher,
+tools, calculator keys) can be reached with Tab, is announced as a button with
+a spoken name ("Red pen", "Backspace", "Square root"), and is pressed with
+Enter or Space. A blue focus ring shows where keyboard focus is, but only for
+keyboard focus, never after a mouse click. Opening the menu or toolbox from
+the keyboard moves focus into it, and `Esc` hands focus back to the button that
+opened it.
 
 ## How it works
 
@@ -88,9 +121,9 @@ out of sight along with the title above it, same as the launcher button.
 The settings panel is positioned in document coordinates, so it scrolls with the
 page rather than being repositioned by script, and it sits just under Möbius's
 own fixed `#assignmentButtons` bar (z-index 9001) so that bar stays on top. The
-calculator and draw-tools panels are placed the same way, anchored to the
-launcher and moving together — until the calculator is dragged, at which point
-it switches from document coordinates to `position: fixed` and stops being
+launcher, the calculator and the draw-tools panel are all `position: fixed`
+instead, since the launcher is pinned to the viewport and the panels hang off
+it — until the calculator is dragged, at which point it stops being
 repositioned by anything but the drag itself; the draw panel keeps following
 the launcher regardless.
 
@@ -98,19 +131,21 @@ The toolbar is inserted as a plain `div` between the page header (`#top`) and th
 body columns (`#inner`), which are siblings inside `#main` — in normal flow, the
 same width as the content, overlapping nothing. It's only added when the page
 really has that shape, so an unfamiliar page type gets no toolbar rather than a
-broken layout.
+broken layout. The bar only reserves the launcher's space; the launcher itself
+is fixed at the spot that space occupies when the page is scrolled to the top.
 
-The drawing layer is a viewport-sized canvas, but the strokes are stored in
-document coordinates and replayed when the page scrolls, so a mark stays on the
-content it was drawn over. Choosing "unselect" doesn't remove the canvas — it
-just sets the canvas to `pointer-events: none`, so existing marks stay visible
-but clicks and scrolling pass straight through to the page.
+The marks are an SVG positioned in document coordinates, so the browser
+scrolls them together with the page, with no lag. (An earlier version
+repainted a viewport-sized canvas on every scroll event, which always trailed
+the page by a frame or more.) The eraser is an SVG mask over the strokes drawn
+before it, so it removes ink, never the page, and later strokes still show on
+top of an erased patch. Pointer input goes to a separate invisible layer fixed
+to the viewport. Choosing "unselect" doesn't remove that layer; it just sets it
+to `pointer-events: none`, so existing marks stay visible but clicks and
+scrolling pass straight through to the page.
 
-The launcher button sits below the canvas in z-index, so without special
-handling a stroke could paint right over it (and swallow the click meant for
-it). Every paint call clips a hole over the launcher's current screen rect
-first — two overlapping canvas rects with the `evenodd` fill rule — so ink
-can never land there, however fast or far a stroke crosses it.
+The launcher sits one z-index step above both layers, so ink never covers it
+and clicks on it always reach it, even mid-drawing.
 
 ## Subtitles: paused, not abandoned
 
@@ -145,6 +180,12 @@ Most of the fiddly numbers are constants at the top of `content.js`:
 `PROGRESS_GAP`, `MENU_GAP` and `MENU_EDGE_INSET` (the panel's gap from the
 player), the pause-detection thresholds `PAUSE_WINDOW_SEC`, `PAUSE_SILENCE_RMS`
 and `PAUSE_MIN_SEC`, and for the toolbox `LAUNCHER_SIZE`, `SWATCH_SIZE`,
+`TOOL_ICON_SIZE` and `TOOL_GAP` (the draw-tools column's circle size, icon size
+and spacing, shared by every button in it), `LAUNCHER_TOOLS_GAP` (the larger
+gap between the launcher and the first of those buttons),
+`LAUNCHER_MARGIN_GAP` (the launcher's distance from the content when it sits
+in the margin), `FONT`, `PANEL_RADIUS` and `CONTROL_RADIUS` (the shared font and
+corner radii), `PANEL_FADE_MS` (how long panels take to fade in),
 `TOOLBOX_PANEL_GAP` (space between the calculator and draw-tools panels),
 `PEN_COLORS`, `PEN_WIDTH`, `ERASER_WIDTH`, and for the calculator `CALC_KEY_W`
 (every key's width, basic or scientific - the two panel widths are derived

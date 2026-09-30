@@ -29,17 +29,36 @@
   // page content, which sets no z-index of its own.
   const PANEL_Z = 9000;
 
+  // One look across every panel: the menu, calculator and tooltip share a
+  // font, panels share one corner radius, and the controls inside them
+  // (keys, display, small buttons) share a smaller one.
+  const FONT = "Arial, Helvetica, sans-serif";
+  const PANEL_RADIUS = 10;
+  const CONTROL_RADIUS = 5;
+  const PANEL_FADE_MS = 120; // how long a panel takes to fade in when opened
+  const FOCUSABLE_CLASS = "mobius-focusable"; // gets the keyboard focus ring
+
   const TOOLBAR_ID = "mobius-tools-bar";
   const PEN_WIDTH = 3;
   const ERASER_WIDTH = 24; // wider than the pen, as a real eraser is
   const LAUNCHER_SIZE = 44; // the round purple button that opens the toolbox
-  const SWATCH_SIZE = 28; // the color/unselect/eraser circles under the calculator
+  const TOOLBAR_PAD_Y = 6; // space above and below the launcher in the toolbar
+  const TOOLBAR_PAD_RIGHT = 12; // nudged in from the bar's/content's right edge
+  const LAUNCHER_MARGIN_GAP = 16; // from the content's right edge, when in the margin
+  const SWATCH_SIZE = 28; // every circle in the draw-tools column
+  const TOOL_ICON_SIZE = 18; // the icon inside each of those circles
+  const TOOL_GAP = 6; // between circles in that column
+  // Launcher to the column's first circle: roomier than TOOL_GAP, since the
+  // open launcher's 3px ring eats into it and the launcher is a different kind
+  // of button from the tools under it.
+  const LAUNCHER_TOOLS_GAP = 12;
   const TOOLBOX_PANEL_GAP = 8; // gap between the calculator and the draw-tools panel
   const TOOLBOX_PURPLE = "#802a8f"; // matches the extension's own icon tile
   // Solid (not translucent) so "unselect" and the eraser stay visible however
   // the page underneath is colored, now that they float free of a card.
   const TOOLBOX_NEUTRAL = "rgba(51, 51, 51, 0.95)";
   const PEN_COLORS = ["#1a1a1a", "#ef4444", "#3b82f6"]; // black, red, blue
+  const PEN_NAMES = ["Black pen", "Red pen", "Blue pen"]; // tooltips and labels
 
   const BAR_SELECTOR = ".jp-gui.jp-interface";
 
@@ -150,16 +169,20 @@
     updateLabels();
   }
 
+  function setSpeedLabel(label, rate) {
+    const text = Math.abs(rate - 1) < 0.001 ? "" : formatRate(rate);
+    // Only touched when it changes: a text change is a child-list mutation,
+    // which would wake the observer.
+    if (label.textContent !== text) label.textContent = text;
+    label.style.display = text ? "inline" : "none";
+  }
+
   function updateLabels() {
-    // Each gear carries a dot whenever its own player isn't at 1x, since the
-    // rate is otherwise only visible once that player's menu is open.
     document.querySelectorAll(BAR_SELECTOR).forEach((bar) => {
-      const dot = bar.querySelector(".mobius-speed-dot");
-      if (dot) {
-        dot.style.display =
-          Math.abs(rateFor(bar) - 1) < 0.001 ? "none" : "block";
-      }
+      const label = bar.querySelector(".mobius-speed-label");
+      if (label) setSpeedLabel(label, rateFor(bar));
     });
+    dockIntoPlayerBar(); // the gear just changed width, so re-clear the volume control
   }
 
   // --- Icons ---
@@ -349,6 +372,33 @@
     ]);
   }
 
+  // A small calculator glyph: a body, a display line, and a grid of keys.
+  function calculatorIcon(size) {
+    return makeIcon(size, [
+      svgEl("rect", {
+        x: 5,
+        y: 2,
+        width: 14,
+        height: 20,
+        rx: 2,
+        stroke: "currentColor",
+        "stroke-width": 1.8,
+      }),
+      svgEl("path", {
+        d: "M8 6.2h8",
+        stroke: "currentColor",
+        "stroke-width": 1.8,
+        "stroke-linecap": "round",
+      }),
+      svgEl("path", {
+        d: "M8 11h0M12 11h0M16 11h0M8 15h0M12 15h0M16 15h0M8 19h0M12 19h0",
+        stroke: "currentColor",
+        "stroke-width": 2.2,
+        "stroke-linecap": "round",
+      }),
+    ]);
+  }
+
   // The dark rounded panel the settings menu, the calculator and the drawing
   // controls all share.
   function panelStyle(el) {
@@ -357,13 +407,58 @@
       zIndex: String(PANEL_Z),
       background: "rgba(51, 51, 51, 0.9)",
       color: "#fff",
-      borderRadius: "7px",
+      borderRadius: PANEL_RADIUS + "px",
       boxShadow: "0 2px 14px rgba(0,0,0,0.5)",
-      fontFamily: "Arial, Helvetica, sans-serif",
+      fontFamily: FONT,
       fontSize: "13px",
       lineHeight: "1.2",
       userSelect: "none",
     });
+  }
+
+  // Keyboard and screen-reader access for the extension's div buttons:
+  // reachable with Tab, announced as a button, and pressed with Enter or
+  // Space like a real one. Enter/Space are stopped here so they don't also
+  // reach a parent's own key handling (the calculator reads Enter as "=").
+  function makeAccessible(el, label) {
+    el.setAttribute("role", "button");
+    if (label) el.setAttribute("aria-label", label);
+    el.tabIndex = 0;
+    el.classList.add(FOCUSABLE_CLASS);
+    el.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      e.stopPropagation();
+      el.click();
+    });
+  }
+
+  // Inline styles can't express :focus-visible, so the focus ring is the one
+  // rule the extension puts in a stylesheet. Keyboard focus only - a mouse
+  // click doesn't leave a ring behind.
+  function ensureStyles() {
+    if (document.getElementById("mobius-styles")) return;
+    const style = document.createElement("style");
+    style.id = "mobius-styles";
+    style.textContent =
+      "." + FOCUSABLE_CLASS + ":focus{outline:none}" +
+      "." + FOCUSABLE_CLASS + ":focus-visible{outline:2px solid " + ACCENT +
+      " !important;outline-offset:2px !important}";
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  // A short fade and slide as a panel opens, so it doesn't just pop into
+  // place. Web Animations rather than a CSS transition, so it can't collide
+  // with the inline styles the positioning code rewrites on every pass.
+  function animateIn(el, fromY) {
+    if (!el || !el.animate) return;
+    el.animate(
+      [
+        { opacity: 0, transform: "translateY(" + fromY + "px)" },
+        { opacity: 1, transform: "none" },
+      ],
+      { duration: PANEL_FADE_MS, easing: "ease-out" }
+    );
   }
 
   // --- Settings menu (YouTube-style panel above the gear button) ---
@@ -400,14 +495,18 @@
       tipEl = document.createElement("div");
       tipEl.className = "mobius-speed-tip";
       Object.assign(tipEl.style, {
-        position: "absolute",
+        // Fixed, not absolute: a fixed element never adds to the page's
+        // scrollable area, so a tip near the right edge can't summon a
+        // horizontal scrollbar that shifts the whole layout (and the
+        // toolbox with it) on hover.
+        position: "fixed",
         zIndex: String(PANEL_Z), // same layer as the menu, but appended after it
         background: "#f7f7f7",
         color: "#1a1a1a",
         border: "1px solid rgba(0,0,0,0.25)",
-        borderRadius: "4px",
+        borderRadius: CONTROL_RADIUS + "px",
         padding: "3px 7px",
-        font: "12px/1.3 system-ui, -apple-system, Segoe UI, Arial, sans-serif",
+        font: "12px/1.3 " + FONT,
         boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
         whiteSpace: "nowrap",
         pointerEvents: "none", // never steals the hover that summoned it
@@ -416,11 +515,14 @@
     }
     tipEl.textContent = text; // several buttons share the one node
     // Below and right of the pointer, as the browser's own tooltip sits, pulled
-    // back inside the window when it would otherwise overflow.
-    const left = Math.min(x + 14, window.innerWidth - tipEl.offsetWidth - 4);
-    const top = Math.min(y + 20, window.innerHeight - tipEl.offsetHeight - 4);
-    tipEl.style.left = Math.round(Math.max(4, left) + window.scrollX) + "px";
-    tipEl.style.top = Math.round(Math.max(4, top) + window.scrollY) + "px";
+    // back inside the window when it would otherwise overflow. clientWidth/
+    // clientHeight rather than innerWidth/innerHeight, which include the
+    // scrollbars and so would let the tip slide underneath them.
+    const root = document.documentElement;
+    const left = Math.min(x + 14, root.clientWidth - tipEl.offsetWidth - 4);
+    const top = Math.min(y + 20, root.clientHeight - tipEl.offsetHeight - 4);
+    tipEl.style.left = Math.round(Math.max(4, left)) + "px";
+    tipEl.style.top = Math.round(Math.max(4, top)) + "px";
   }
 
   // Without an onClick the row is inert: dimmed, no hover, nothing to press.
@@ -439,6 +541,7 @@
       row.setAttribute("aria-disabled", "true");
       return row;
     }
+    makeAccessible(row);
     row.addEventListener("mouseenter", () => {
       row.style.background = "rgba(255,255,255,0.12)";
     });
@@ -529,6 +632,7 @@
       menuView = "root";
       renderMenu();
     });
+    header.setAttribute("aria-label", "Back");
     header.style.borderBottom = "1px solid rgba(255,255,255,0.18)";
     header.style.marginBottom = "4px";
     header.appendChild(chevronIcon(15, "left"));
@@ -543,10 +647,14 @@
 
       const scope = menuScope; // captured now; closeMenu() clears it before setRate
       const row = menuRow(() => {
+        const anchor = menuAnchor;
+        const hadFocus = menuEl.contains(document.activeElement);
         closeMenu();
         setRate(scope, rate);
+        if (hadFocus && anchor.isConnected) anchor.focus({ preventScroll: true });
       });
       row.style.padding = "7px 20px 7px 14px";
+      row.setAttribute("aria-pressed", String(active));
       if (active) row.style.fontWeight = "bold";
 
       const tick = document.createElement("span");
@@ -569,9 +677,18 @@
   function renderMenu(recomputePlacement) {
     if (!menuEl) return;
     hideTip(); // the row it belongs to is about to be replaced
+    // Keyboard focus is on a row that's about to be replaced; it moves to
+    // the new view's first row rather than being dropped.
+    const hadFocus = menuEl.contains(document.activeElement);
     menuEl.textContent = "";
     menuEl.appendChild(menuView === "speed" ? buildSpeedView() : buildRootView());
     positionMenu(recomputePlacement);
+    if (hadFocus) focusFirstMenuRow();
+  }
+
+  function focusFirstMenuRow() {
+    const first = menuEl && menuEl.querySelector("." + FOCUSABLE_CLASS);
+    if (first) first.focus({ preventScroll: true });
   }
 
   // Placed in document coordinates rather than viewport ones, so ordinary page
@@ -626,7 +743,8 @@
     menuEl.style.left = Math.round(left) + "px";
   }
 
-  function openMenu(anchor) {
+  // viaKeyboard: opened with Enter/Space, so focus goes into the menu too.
+  function openMenu(anchor, viaKeyboard) {
     closeMenu();
     menuAnchor = anchor;
     menuScope = anchor.closest(BAR_SELECTOR) || PAGE_SCOPE;
@@ -642,11 +760,13 @@
     });
     document.documentElement.appendChild(menuEl);
     renderMenu(true);
+    animateIn(menuEl, menuPlacement === "below" ? -4 : 4); // slides away from the gear
+    if (viaKeyboard) focusFirstMenuRow();
   }
 
-  function toggleMenu(anchor) {
+  function toggleMenu(anchor, viaKeyboard) {
     if (menuAnchor === anchor) closeMenu();
-    else openMenu(anchor);
+    else openMenu(anchor, viaKeyboard);
   }
 
   // Dismiss on any click outside the menu or its button. Capture phase, so it
@@ -675,22 +795,6 @@
       requestAnimationFrame(() => {
         repositionQueued = false;
         positionMenu();
-      });
-    },
-    true
-  );
-
-  // The canvas only covers the viewport, so scrolling has to replay the strokes
-  // at their new screen positions. Throttled to a frame, and only while the
-  // layer is open. Capture phase, since scroll doesn't bubble.
-  window.addEventListener(
-    "scroll",
-    () => {
-      if (!drawCanvas || drawRedrawQueued) return;
-      drawRedrawQueued = true;
-      requestAnimationFrame(() => {
-        drawRedrawQueued = false;
-        redrawStrokes();
       });
     },
     true
@@ -738,7 +842,8 @@
     // by just enough to clear it.
     if (volumeBar && volumeBar.offsetWidth > 0) {
       const volumeLeft = offsetWithin(volumeBar, origin, "offsetLeft");
-      const overflow = btnLeft + GEAR_SIZE + BADGE_GAP - volumeLeft;
+      // The real width, not GEAR_SIZE: the speed label widens the button.
+      const overflow = btnLeft + btn.offsetWidth + BADGE_GAP - volumeLeft;
       if (overflow > 0) {
         timeLeft = Math.max(0, timeLeft - overflow);
         timeHolder.style.setProperty("left", timeLeft + "px", "important");
@@ -800,9 +905,10 @@
       const btn = document.createElement("div");
       btn.className = "mobius-speed-badge";
       btn.title = "Settings - playback speed";
+      makeAccessible(btn, "Settings - playback speed");
       Object.assign(btn.style, {
         position: "absolute",
-        width: GEAR_SIZE + "px",
+        minWidth: GEAR_SIZE + "px",
         height: GEAR_SIZE + "px",
         display: "flex",
         alignItems: "center",
@@ -816,19 +922,21 @@
       });
       btn.appendChild(gearIcon(GEAR_SIZE - 6));
 
-      const dot = document.createElement("span");
-      dot.className = "mobius-speed-dot";
-      Object.assign(dot.style, {
-        position: "absolute",
-        top: "1px",
-        right: "1px",
-        width: "5px",
-        height: "5px",
-        borderRadius: "50%",
-        background: ACCENT,
-        display: Math.abs(rateFor(bar) - 1) < 0.001 ? "none" : "block",
+      // The current speed, right beside the gear whenever it isn't 1x - the
+      // rate is otherwise only visible once the menu is open.
+      const speedLabel = document.createElement("span");
+      speedLabel.className = "mobius-speed-label";
+      Object.assign(speedLabel.style, {
+        marginLeft: "2px",
+        color: ACCENT,
+        fontFamily: FONT,
+        fontSize: "11px",
+        fontWeight: "bold",
+        lineHeight: GEAR_SIZE + "px",
+        whiteSpace: "nowrap",
       });
-      btn.appendChild(dot);
+      btn.appendChild(speedLabel);
+      setSpeedLabel(speedLabel, rateFor(bar));
 
       btn.addEventListener("mouseenter", () => {
         btn.style.opacity = "1";
@@ -839,7 +947,7 @@
       btn.addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        toggleMenu(btn);
+        toggleMenu(btn, e.detail === 0); // detail 0: Enter/Space, not a mouse
       });
       bar.appendChild(btn);
       layOutControls(bar, timeHolder, btn);
@@ -852,8 +960,10 @@
   // Mobius's header (#top) and its two-column body (#inner) are siblings inside
   // #main, so the toolbar goes between them: in normal flow, the same width as
   // the content, overlapping nothing. Guarded like the player docking - an
-  // unfamiliar page shape gets no toolbar rather than a broken layout. Being in
-  // flow, it scrolls away with the header it sits under.
+  // unfamiliar page shape gets no toolbar rather than a broken layout. The bar
+  // itself only holds the launcher's place: the launcher is pinned to the
+  // viewport where that place sits at the top of the page, so it stays on
+  // screen however far down the page is scrolled.
   function ensureToolbar() {
     if (document.getElementById(TOOLBAR_ID)) return;
     const main = document.getElementById("main");
@@ -865,18 +975,23 @@
     const bar = document.createElement("div");
     bar.id = TOOLBAR_ID;
     Object.assign(bar.style, {
-      display: "flex",
-      justifyContent: "flex-end",
-      padding: "6px 12px 6px 0", // nudged in from the bar's/content's right edge
+      height: LAUNCHER_SIZE + 2 * TOOLBAR_PAD_Y + "px",
+      boxSizing: "border-box",
     });
 
     const launcher = document.createElement("div");
     launcher.className = "mobius-toolbox-launcher";
     launcher.title = "Drawing and calculator";
+    makeAccessible(launcher, "Drawing and calculator");
+    launcher.setAttribute("aria-expanded", "false");
     Object.assign(launcher.style, {
+      position: "fixed",
+      // Above the drawing layer too, so it stays clickable mid-stroke.
+      zIndex: String(PANEL_Z),
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
+      boxSizing: "border-box",
       width: LAUNCHER_SIZE + "px",
       height: LAUNCHER_SIZE + "px",
       borderRadius: "50%",
@@ -897,10 +1012,52 @@
       e.preventDefault();
       e.stopPropagation();
       toggleToolbox(launcher);
+      // The panels live at the end of the document, so from the keyboard
+      // (detail 0) focus is carried over to them rather than left for Tab
+      // to reach only after the whole page.
+      if (e.detail === 0 && drawPanelEl) {
+        const first = [...drawPanelEl.querySelectorAll("." + FOCUSABLE_CLASS)].find(
+          (el) => el.getAttribute("aria-disabled") !== "true"
+        );
+        if (first) first.focus({ preventScroll: true });
+      }
     });
 
     bar.appendChild(launcher);
     main.insertBefore(bar, inner);
+    placeLauncher();
+  }
+
+  // Fixed at the spot the bar reserves when the page is scrolled to the top,
+  // read in document coordinates so it lands in the same place whatever the
+  // scroll position is when this runs. Re-run on resize and on the fallback
+  // interval, since the header's height or the content's width can change.
+  //
+  // Out in the page margin beside the content when the window is wide enough,
+  // so the pinned toolbox never sits on top of the lecture as it scrolls
+  // past; the bar then has nothing to hold and collapses. Only on a window
+  // too narrow for that does it tuck inside the content's right edge.
+  function placeLauncher() {
+    const bar = document.getElementById(TOOLBAR_ID);
+    const launcher = bar && bar.firstElementChild;
+    if (!launcher) return;
+    const inner = document.getElementById("inner");
+    const contentRight = (inner || bar).getBoundingClientRect().right;
+    const marginLeft = contentRight + LAUNCHER_MARGIN_GAP;
+    const inMargin =
+      marginLeft + LAUNCHER_SIZE + LAUNCHER_MARGIN_GAP <=
+      document.documentElement.clientWidth;
+    const barHeight = inMargin ? "0px" : LAUNCHER_SIZE + 2 * TOOLBAR_PAD_Y + "px";
+    if (bar.style.height !== barHeight) bar.style.height = barHeight;
+
+    const rect = bar.getBoundingClientRect();
+    const top = rect.top + window.scrollY + TOOLBAR_PAD_Y;
+    const left =
+      (inMargin ? marginLeft : contentRight - TOOLBAR_PAD_RIGHT - LAUNCHER_SIZE) +
+      window.scrollX;
+    launcher.style.top = Math.round(top) + "px";
+    launcher.style.left = Math.round(left) + "px";
+    positionToolbox();
   }
 
   // A round button for the draw-tool row: a color swatch, the "unselect"
@@ -920,13 +1077,26 @@
       cursor: "pointer",
       boxShadow: "0 1px 3px rgba(0,0,0,0.35)",
       boxSizing: "border-box",
+      transition: "transform 0.1s ease, filter 0.1s ease",
     });
     if (icon) btn.appendChild(icon);
+    makeAccessible(btn, tip);
 
     const show = (e) => showTip(tip, e.clientX, e.clientY);
-    btn.addEventListener("mouseenter", show);
+    btn.addEventListener("mouseenter", (e) => {
+      show(e);
+      // Same small lift the launcher gives on hover - but not for a button
+      // that's currently disabled (undo/redo with nothing to do).
+      if (btn.getAttribute("aria-disabled") === "true") return;
+      btn.style.transform = "scale(1.1)";
+      btn.style.filter = "brightness(1.2)";
+    });
     btn.addEventListener("mousemove", show);
-    btn.addEventListener("mouseleave", hideTip);
+    btn.addEventListener("mouseleave", () => {
+      hideTip();
+      btn.style.transform = "";
+      btn.style.filter = "";
+    });
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -941,21 +1111,29 @@
   // take up layout space even at 0 width, and a transparent one lets the dark
   // panel behind it show through as an unwanted ring around every circle.
   function setSwatchActive(btn, active) {
+    btn.setAttribute("aria-pressed", String(active));
     btn.style.boxShadow = active
       ? "0 0 0 2px #fff, 0 0 0 4px " + TOOLBOX_PURPLE + ", 0 1px 3px rgba(0,0,0,0.35)"
       : "0 1px 3px rgba(0,0,0,0.35)";
   }
 
-  // --- The toolbox: a calculator panel and, separate from it, a draw-tools
-  // panel (three colors, "unselect", eraser - stacked in a column). One click
-  // on the launcher opens both together, anchored to it and placed in document
-  // coordinates like the settings menu, so page scrolling moves them natively.
-  // Closing them discards any drawing, same as the old standalone drawing
-  // layer: this is a transient annotation tool, not a saved one.
+  // --- The toolbox: a draw-tools panel, opened by the launcher, with a
+  // calculator button of its own that opens the (separate) calculator panel
+  // on demand. Both are position: fixed, hanging off the launcher, which is
+  // pinned to the viewport - so they stay put as the page scrolls under them
+  // while the drawing itself moves with the page. Closing the toolbox discards
+  // any drawing, same as the old standalone drawing layer: this is a
+  // transient annotation tool, not a saved one.
   let calcPanelEl = null;
+  let calcOpen = false; // whether calcPanelEl is currently shown, not just built
   let drawPanelEl = null;
   let toolboxAnchor = null;
+  let calcBtnEl = null;
   const swatchButtons = []; // { el, tool, color }
+
+  function refreshCalcButton() {
+    if (calcBtnEl) setSwatchActive(calcBtnEl, calcOpen);
+  }
 
   // Dragging the calculator by its top strip detaches it from the launcher:
   // it becomes a plain floating window, fixed to the viewport wherever it's
@@ -969,7 +1147,6 @@
     if (!calcPanelEl) return;
     const rect = calcPanelEl.getBoundingClientRect();
     calcManualPos = true;
-    calcPanelEl.style.position = "fixed";
     calcPanelEl.style.top = rect.top + "px";
     calcPanelEl.style.left = rect.left + "px";
     calcDragOffsetX = e.clientX - rect.left;
@@ -1006,7 +1183,7 @@
   }
 
   function toggleToolbox(anchor) {
-    if (calcPanelEl) closeToolbox();
+    if (drawPanelEl) closeToolbox();
     else openToolbox(anchor);
   }
 
@@ -1014,18 +1191,71 @@
     closeToolbox();
     toolboxAnchor = anchor;
     anchor.style.boxShadow = "0 0 0 3px rgba(128,42,143,0.4), 0 2px 8px rgba(0,0,0,0.35)";
+    anchor.setAttribute("aria-expanded", "true");
 
-    calcReset();
-    calcScientific = false; // always reopens in basic mode
     openDrawSurface();
+    drawPanelEl = buildDrawPanel();
+    document.documentElement.appendChild(drawPanelEl);
+
+    positionToolbox();
+    animateIn(drawPanelEl, -4);
+  }
+
+  function closeToolbox() {
+    closeCalcPanel();
+    if (toolboxAnchor) {
+      toolboxAnchor.style.boxShadow = "0 2px 8px rgba(0,0,0,0.35)";
+      toolboxAnchor.setAttribute("aria-expanded", "false");
+    }
+    if (drawPanelEl) drawPanelEl.remove();
+    drawPanelEl = null;
+    toolboxAnchor = null;
+    swatchButtons.length = 0;
+    undoBtnEl = null;
+    redoBtnEl = null;
+    calcBtnEl = null;
+    closeDrawSurface();
+    hideTip();
+  }
+
+  // The calculator: its own on/off, separate from the draw-tools panel -
+  // opened by the calculator button under the eraser, not automatically with
+  // the rest of the toolbox. The first click builds it; every click after
+  // that just shows/hides the same element, so the display, mode and
+  // (if dragged) position all survive being toggled off and back on. Only
+  // closing the whole toolbox throws that away - see closeCalcPanel().
+  function toggleCalcPanel() {
+    if (!calcPanelEl) {
+      openCalcPanel();
+      return;
+    }
+    calcOpen = !calcOpen;
+    calcPanelEl.style.display = calcOpen ? "" : "none";
+    refreshCalcButton();
+    if (calcOpen) {
+      positionToolbox();
+      animateIn(calcPanelEl, -4);
+      calcPanelEl.focus({ preventScroll: true });
+    } else {
+      stopCalcDrag(); // harmless if nothing was in progress
+      hideTip();
+    }
+  }
+
+  function openCalcPanel() {
+    if (calcPanelEl) return;
+    calcReset();
+    calcScientific = false; // always opens in basic mode
+    calcManualPos = false; // opens docked under the launcher, not wherever it was left
+    calcOpen = true;
 
     calcPanelEl = document.createElement("div");
     calcPanelEl.className = "mobius-calculator";
     panelStyle(calcPanelEl);
     Object.assign(calcPanelEl.style, {
+      position: "fixed", // docked to the launcher, which is fixed too
       padding: CALC_PANEL_PAD + "px",
       outline: "none",
-      borderRadius: "14px", // a softer, friendlier panel than the settings menu
       transition: "box-shadow 0.12s ease-in", // fades the hover ring in/out
       // Explicit rather than inherited: the host page's own CSS may reset
       // box-sizing globally, and CALC_WIDTH_BASIC/SCI above are computed
@@ -1034,99 +1264,92 @@
     });
     calcPanelEl.tabIndex = -1;
     calcPanelEl.addEventListener("keydown", onCalcKeydown);
-    calcManualPos = false; // reopens docked under the launcher, not wherever it was left
 
     calcPanelEl.appendChild(buildModeToggle());
     renderCalcBody();
     document.documentElement.appendChild(calcPanelEl);
 
-    drawPanelEl = buildDrawPanel();
-    document.documentElement.appendChild(drawPanelEl);
-
     updateCalcDisplay();
     positionToolbox();
+    animateIn(calcPanelEl, -4);
     calcPanelEl.focus({ preventScroll: true });
+    refreshCalcButton();
   }
 
-  function closeToolbox() {
+  // The real teardown - only called when the whole toolbox closes. Resets
+  // everything, matching "nothing is stored" once the toolbox itself is gone.
+  function closeCalcPanel() {
+    if (!calcPanelEl) return;
     stopCalcDrag(); // harmless if nothing was in progress
-    if (toolboxAnchor) toolboxAnchor.style.boxShadow = "0 2px 8px rgba(0,0,0,0.35)";
-    if (calcPanelEl) calcPanelEl.remove();
-    if (drawPanelEl) drawPanelEl.remove();
+    calcPanelEl.remove();
     calcPanelEl = null;
-    drawPanelEl = null;
-    toolboxAnchor = null;
-    swatchButtons.length = 0;
-    undoBtnEl = null;
-    redoBtnEl = null;
-    closeDrawSurface();
-    hideTip();
+    calcOpen = false;
+    refreshCalcButton();
   }
 
   function positionToolbox() {
-    if (!calcPanelEl || !toolboxAnchor) return;
-    const rect = toolboxAnchor.getBoundingClientRect();
+    if (!toolboxAnchor) return;
+    // Its own untransformed box, read from the top/left placeLauncher() set,
+    // not getBoundingClientRect(): that includes the hover scale, and the
+    // launcher is always hovered at the moment it's clicked open - so the
+    // panels would be placed ~1.5px off, then jump back on the next pass
+    // once the pointer had moved away and it shrank again.
+    const anchorTop = parseFloat(toolboxAnchor.style.top) || 0;
+    const anchorLeft = parseFloat(toolboxAnchor.style.left) || 0;
+    const rect = {
+      top: anchorTop,
+      left: anchorLeft,
+      right: anchorLeft + toolboxAnchor.offsetWidth,
+      bottom: anchorTop + toolboxAnchor.offsetHeight,
+    };
     const drawHeight = drawPanelEl ? drawPanelEl.offsetHeight : 0;
-    const calcHeight = calcPanelEl.offsetHeight;
+    const calcHeight = calcPanelEl && calcOpen ? calcPanelEl.offsetHeight : 0;
     // Once dragged, the calculator is off on its own; only the draw panel is
     // still anchored under the launcher, and its height alone decides
-    // whether that fits below or above.
-    const totalHeight = calcManualPos
-      ? drawHeight
-      : drawHeight + (drawPanelEl ? TOOLBOX_PANEL_GAP : 0) + calcHeight;
+    // whether that fits below or above. Same when the calculator isn't open
+    // (built but hidden, or never built at all) - there's nothing of its to
+    // add.
+    const totalHeight =
+      calcManualPos || !calcPanelEl || !calcOpen
+        ? drawHeight
+        : drawHeight + (drawPanelEl ? TOOLBOX_PANEL_GAP : 0) + calcHeight;
 
-    // Scrolled past the launcher: hidden rather than left floating over
-    // unrelated content, and back as soon as the launcher is. A dragged
-    // calculator is exempt - it's fixed to the viewport, not the launcher, so
-    // the page scrolling past the (now irrelevant) anchor shouldn't hide it.
-    const offScreen =
-      rect.bottom < 0 ||
-      rect.top > window.innerHeight ||
-      rect.right < 0 ||
-      rect.left > window.innerWidth;
-    const visibility = offScreen ? "hidden" : "visible";
-    if (!calcManualPos) calcPanelEl.style.visibility = visibility;
-    if (drawPanelEl) drawPanelEl.style.visibility = visibility;
-    // Deliberately no early return here even while offscreen: top/left are
-    // still recomputed below. Skipping that left a stale position behind
-    // whenever something changed (like toggling scientific mode, which
-    // changes the calculator's width) while the launcher was scrolled out of
-    // view - it would reappear wherever it was last visible instead of where
-    // it now belongs, since nothing else was around to correct it until the
-    // 1.5s fallback interval next ran.
-
+    // Viewport coordinates throughout: the launcher is pinned to the viewport,
+    // so the panels hanging off it are too, and scrolling moves none of them.
     // Below the button, where the toolbar sits near the top of the page; above
     // it only when there genuinely isn't room below.
     const below =
-      rect.bottom + MENU_GAP + totalHeight <= window.innerHeight ||
-      rect.top - totalHeight - MENU_GAP < 4;
+      rect.bottom + LAUNCHER_TOOLS_GAP + totalHeight <= window.innerHeight ||
+      rect.top - totalHeight - LAUNCHER_TOOLS_GAP < 4;
     const top = below
-      ? rect.bottom + window.scrollY + MENU_GAP
-      : rect.top + window.scrollY - totalHeight - MENU_GAP;
+      ? rect.bottom + LAUNCHER_TOOLS_GAP
+      : rect.top - totalHeight - LAUNCHER_TOOLS_GAP;
     const clampedTop = Math.round(Math.max(0, top));
 
     // Both panels align to the launcher's own right edge (the calculator's
     // right edge always equals the launcher's when it's still docked, so the
     // draw panel can use this directly rather than reading it off the
     // calculator, which might by now be sitting somewhere else entirely).
-    const docWidth = document.documentElement.scrollWidth;
-    const anchorRight = rect.right + window.scrollX;
+    const viewWidth = window.innerWidth;
+    const anchorRight = rect.right;
 
     if (drawPanelEl) {
       const drawWidth = drawPanelEl.offsetWidth;
       const drawLeft = Math.max(
         4,
-        Math.min(anchorRight - drawWidth, docWidth - drawWidth - 4)
+        Math.min(anchorRight - drawWidth, viewWidth - drawWidth - 4)
       );
       drawPanelEl.style.top = clampedTop + "px";
       drawPanelEl.style.left = Math.round(drawLeft) + "px";
     }
 
+    if (!calcPanelEl || !calcOpen) return; // nothing more to position
+
     if (!calcManualPos) {
       const calcWidth = calcPanelEl.offsetWidth;
       const calcLeft = Math.max(
         4,
-        Math.min(anchorRight - calcWidth, docWidth - calcWidth - 4)
+        Math.min(anchorRight - calcWidth, viewWidth - calcWidth - 4)
       );
       // The calculator hangs below the draw-tools row (or right under the
       // launcher if there's no draw panel), right-aligned the same way.
@@ -1154,10 +1377,10 @@
     }
   }
 
-  // The draw-tools panel: three color circles, an "unselect" pointer that
-  // hands clicks back to the page, and the eraser - stacked in a column, with
-  // undo/redo as a side-by-side pair underneath. Its own panel, separate from
-  // the calculator.
+  // The draw-tools panel, one column: undo above redo, then three color
+  // circles, an "unselect" pointer that hands clicks back to the page, the
+  // eraser and the calculator button. Its own panel, separate from the
+  // calculator.
   function buildDrawPanel() {
     swatchButtons.length = 0;
 
@@ -1167,40 +1390,51 @@
     // circles float free rather than sitting on a card of their own.
     panelStyle(panel);
     Object.assign(panel.style, {
+      position: "fixed", // docked to the launcher, which is fixed too
       background: "none",
       boxShadow: "none",
-      padding: "8px",
+      // No vertical padding, so the launcher-to-first-circle gap is exactly
+      // LAUNCHER_TOOLS_GAP; the sides keep the column centred under the launcher.
+      padding: "0 8px",
       display: "flex",
       flexDirection: "column",
-      // flex-end, not center: the undo/redo row is wider than a single
-      // circle, so centering would leave every circle adrift in the middle
-      // of that extra width instead of flush against the same right edge
-      // the calculator and launcher share.
+      // flex-end: every circle flush against the same right edge the
+      // calculator and launcher share.
       alignItems: "flex-end",
-      gap: "6px",
+      gap: TOOL_GAP + "px",
     });
 
-    PEN_COLORS.forEach((color) => {
-      const btn = circleToolButton(SWATCH_SIZE, color, null, "Draw", () =>
+    // Undo above redo, at the top of the column: actions rather than tools
+    // to pick, so they sit apart from the colors below.
+    undoBtnEl = circleToolButton(
+      SWATCH_SIZE,
+      TOOLBOX_NEUTRAL,
+      undoIcon(TOOL_ICON_SIZE),
+      "Undo",
+      undoStroke
+    );
+    redoBtnEl = circleToolButton(
+      SWATCH_SIZE,
+      TOOLBOX_NEUTRAL,
+      redoIcon(TOOL_ICON_SIZE),
+      "Redo",
+      redoStroke
+    );
+    panel.append(undoBtnEl, redoBtnEl);
+    refreshUndoRedo();
+
+    PEN_COLORS.forEach((color, i) => {
+      const btn = circleToolButton(SWATCH_SIZE, color, null, PEN_NAMES[i], () =>
         setDrawTool("pen", color)
       );
       swatchButtons.push({ el: btn, tool: "pen", color: color });
       panel.appendChild(btn);
     });
 
-    const divider = document.createElement("span");
-    Object.assign(divider.style, {
-      width: "18px",
-      height: "1px",
-      margin: "2px 0",
-      background: "rgba(255,255,255,0.25)",
-    });
-    panel.appendChild(divider);
-
     const unselect = circleToolButton(
       SWATCH_SIZE,
       TOOLBOX_NEUTRAL,
-      cursorIcon(14),
+      cursorIcon(TOOL_ICON_SIZE),
       "Stop drawing",
       () => setDrawTool("none", null)
     );
@@ -1210,34 +1444,24 @@
     const eraser = circleToolButton(
       SWATCH_SIZE,
       TOOLBOX_NEUTRAL,
-      eraserIcon(15),
+      eraserIcon(TOOL_ICON_SIZE),
       "Eraser",
       () => setDrawTool("eraser", null)
     );
     swatchButtons.push({ el: eraser, tool: "eraser", color: null });
     panel.appendChild(eraser);
 
-    // Undo/redo, side by side rather than stacked with the rest - a pair of
-    // actions rather than another tool to pick.
-    const undoRedoRow = document.createElement("div");
-    Object.assign(undoRedoRow.style, { display: "flex", gap: "6px" });
-    undoBtnEl = circleToolButton(
+    // Not a draw tool, so not in swatchButtons - its own on/off, toggled by
+    // whether the calculator panel exists rather than by drawTool.
+    calcBtnEl = circleToolButton(
       SWATCH_SIZE,
       TOOLBOX_NEUTRAL,
-      undoIcon(14),
-      "Undo",
-      undoStroke
+      calculatorIcon(TOOL_ICON_SIZE),
+      "Calculator",
+      toggleCalcPanel
     );
-    redoBtnEl = circleToolButton(
-      SWATCH_SIZE,
-      TOOLBOX_NEUTRAL,
-      redoIcon(14),
-      "Redo",
-      redoStroke
-    );
-    undoRedoRow.append(undoBtnEl, redoBtnEl);
-    panel.appendChild(undoRedoRow);
-    refreshUndoRedo();
+    panel.appendChild(calcBtnEl);
+    refreshCalcButton();
 
     refreshSwatches();
     return panel;
@@ -1254,168 +1478,137 @@
 
   // --- Drawing overlay ---
   // A transient annotation layer over the page: nothing is saved, and closing
-  // the toolbox throws the marks away. Strokes are held in document
-  // coordinates and replayed when the page scrolls, so a mark stays on the
-  // words it was drawn over rather than sliding across the viewport with the
-  // canvas. "Unselect" leaves the marks in place but hands clicks back to the
-  // page, rather than removing the layer, so scrolling and reading still work
+  // the toolbox throws the marks away. The marks are an SVG placed in document
+  // coordinates, so the browser scrolls them with the page itself - replaying
+  // them onto a viewport-fixed canvas from a scroll handler always trailed the
+  // page by a frame or more. Input is caught separately by an invisible
+  // viewport-fixed layer, which has nothing to show and so can't visibly lag.
+  // "Unselect" leaves the marks in place but hands clicks back to the page,
+  // rather than removing the layer, so scrolling and reading still work
   // without having to close the whole toolbox.
-  let drawCanvas = null;
-  let drawCtx = null;
+  let drawInputEl = null;
+  let drawSvgEl = null;
   let drawTool = "none"; // "none" | "pen" | "eraser"
   let drawColor = PEN_COLORS[0];
   let drawStrokes = [];
   let drawRedoStack = []; // popped strokes, ready for redo until a new one is drawn
   let drawStroke = null; // the stroke being drawn right now
-  let drawRedrawQueued = false;
   let undoBtnEl = null;
   let redoBtnEl = null;
 
   function openDrawSurface() {
-    if (drawCanvas) return;
+    if (drawInputEl) return;
     drawStrokes = [];
     drawRedoStack = [];
     drawStroke = null;
     drawTool = "none";
     drawColor = PEN_COLORS[0];
 
-    drawCanvas = document.createElement("canvas");
-    drawCanvas.className = "mobius-draw-layer";
-    Object.assign(drawCanvas.style, {
+    // A 1px box at the document origin whose strokes overflow it visibly:
+    // unlike a box sized to the document, it can't keep the page scrollable
+    // past its real end if the content later gets shorter.
+    drawSvgEl = svgEl("svg", { class: "mobius-draw-layer", width: "1", height: "1" });
+    Object.assign(drawSvgEl.style, {
+      position: "absolute",
+      left: "0",
+      top: "0",
+      overflow: "visible",
+      zIndex: String(PANEL_Z - 1), // below the toolbox panel, above the page
+      pointerEvents: "none",
+    });
+    document.documentElement.appendChild(drawSvgEl);
+
+    drawInputEl = document.createElement("div");
+    drawInputEl.className = "mobius-draw-input";
+    Object.assign(drawInputEl.style, {
       position: "fixed",
       left: "0",
       top: "0",
       width: "100%",
       height: "100%",
-      zIndex: String(PANEL_Z - 1), // below the toolbox panel, above the page
+      zIndex: String(PANEL_Z - 1),
       cursor: "default",
       pointerEvents: "none", // "unselect" is the default: the page stays usable
       touchAction: "none", // a finger or pen draws here instead of scrolling
     });
-    document.documentElement.appendChild(drawCanvas);
-    drawCtx = drawCanvas.getContext("2d");
-    sizeDrawCanvas();
+    document.documentElement.appendChild(drawInputEl);
 
-    drawCanvas.addEventListener("pointerdown", onDrawStart);
-    drawCanvas.addEventListener("pointermove", onDrawMove);
-    drawCanvas.addEventListener("pointerup", onDrawEnd);
-    drawCanvas.addEventListener("pointercancel", onDrawEnd);
+    drawInputEl.addEventListener("pointerdown", onDrawStart);
+    drawInputEl.addEventListener("pointermove", onDrawMove);
+    drawInputEl.addEventListener("pointerup", onDrawEnd);
+    drawInputEl.addEventListener("pointercancel", onDrawEnd);
   }
 
   function closeDrawSurface() {
-    if (!drawCanvas) return;
-    drawCanvas.remove();
-    drawCanvas = null;
-    drawCtx = null;
+    if (!drawInputEl) return;
+    drawInputEl.remove();
+    drawSvgEl.remove();
+    drawInputEl = null;
+    drawSvgEl = null;
     drawStroke = null;
     drawStrokes = [];
     drawRedoStack = [];
     drawTool = "none";
   }
 
-  // Backing store in device pixels so strokes aren't blurry on a HiDPI screen,
-  // with the context scaled so the drawing code can work in CSS pixels. Setting
-  // width/height clears the canvas, hence the replay.
-  function sizeDrawCanvas() {
-    if (!drawCanvas) return;
-    const dpr = window.devicePixelRatio || 1;
-    drawCanvas.width = Math.round(window.innerWidth * dpr);
-    drawCanvas.height = Math.round(window.innerHeight * dpr);
-    drawCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawCtx.lineCap = "round";
-    drawCtx.lineJoin = "round";
-    redrawStrokes();
-  }
-
   function docPoint(e) {
     return { x: e.clientX + window.scrollX, y: e.clientY + window.scrollY };
   }
 
-  function strokeStyleFor(stroke) {
-    // The eraser cuts holes in the layer instead of painting over it, so it
-    // works whatever the page underneath looks like.
-    drawCtx.globalCompositeOperation =
-      stroke.tool === "eraser" ? "destination-out" : "source-over";
-    drawCtx.strokeStyle = stroke.color;
-    drawCtx.fillStyle = stroke.color;
-    drawCtx.lineWidth = stroke.width;
+  // A lone point becomes a zero-length segment, which round caps render as a
+  // dot, so a tap with no movement still leaves a mark.
+  function strokePathData(points) {
+    const d = points.map((p, i) => (i ? "L" : "M") + p.x + " " + p.y);
+    if (points.length === 1) d.push("L" + points[0].x + " " + points[0].y);
+    return d.join(" ");
   }
 
-  // Keeps the launcher paint-free and clickable: a clip region with a hole
-  // punched over its current screen rect (the two overlapping rects plus the
-  // "evenodd" fill rule is what makes the inner one a hole rather than just
-  // more area to paint). Read fresh each time rather than cached, since the
-  // launcher's viewport position changes as the page scrolls. Callers must
-  // wrap this in their own save()/restore() - it only sets up the clip, it
-  // doesn't undo it.
-  function clipOutLauncher() {
-    if (!toolboxAnchor) return;
-    const r = toolboxAnchor.getBoundingClientRect();
-    if (r.width <= 0 || r.height <= 0) return;
-    drawCtx.beginPath();
-    drawCtx.rect(0, 0, window.innerWidth, window.innerHeight);
-    drawCtx.rect(r.left, r.top, r.width, r.height);
-    drawCtx.clip("evenodd");
+  function strokePath(stroke, color) {
+    return svgEl("path", {
+      d: strokePathData(stroke.points),
+      fill: "none",
+      stroke: color,
+      "stroke-width": stroke.width,
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+    });
   }
 
-  function paintDot(stroke, point) {
-    drawCtx.save();
-    clipOutLauncher();
-    drawCtx.beginPath();
-    drawCtx.arc(
-      point.x - window.scrollX,
-      point.y - window.scrollY,
-      stroke.width / 2,
-      0,
-      Math.PI * 2
-    );
-    drawCtx.fill();
-    drawCtx.restore();
-  }
-
-  // Only the newest segment, so an ordinary drag doesn't repaint everything.
-  function paintLastSegment(stroke) {
-    const pts = stroke.points;
-    strokeStyleFor(stroke);
-    if (pts.length === 1) {
-      paintDot(stroke, pts[0]); // a tap with no movement still leaves a mark
-      return;
-    }
-    const a = pts[pts.length - 2];
-    const b = pts[pts.length - 1];
-    drawCtx.save();
-    clipOutLauncher();
-    drawCtx.beginPath();
-    drawCtx.moveTo(a.x - window.scrollX, a.y - window.scrollY);
-    drawCtx.lineTo(b.x - window.scrollX, b.y - window.scrollY);
-    drawCtx.stroke();
-    drawCtx.restore();
-  }
-
-  function redrawStrokes() {
-    if (!drawCtx) return;
-    drawCtx.globalCompositeOperation = "source-over";
-    drawCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-    drawStrokes.forEach((stroke) => {
-      const pts = stroke.points;
-      strokeStyleFor(stroke);
-      if (pts.length === 1) {
-        paintDot(stroke, pts[0]); // already excludes the launcher itself
+  // Rebuilt from the stroke list whenever it changes shape (a new stroke,
+  // undo, redo); extending the stroke in progress only rewrites its own path.
+  // The eraser only removes marks, never the page: each eraser stroke becomes
+  // a mask over everything drawn before it, so later pen strokes still show
+  // on top of an erased patch, same as painting over it would.
+  function renderStrokes() {
+    if (!drawSvgEl) return;
+    drawSvgEl.textContent = "";
+    const defs = svgEl("defs", {});
+    drawSvgEl.appendChild(defs);
+    const root = document.documentElement;
+    const box = {
+      x: -100,
+      y: -100,
+      width: root.scrollWidth + 200,
+      height: root.scrollHeight + 200,
+    };
+    let group = svgEl("g", {});
+    drawStrokes.forEach((stroke, i) => {
+      if (stroke.tool !== "eraser") {
+        stroke.el = strokePath(stroke, stroke.color);
+        group.appendChild(stroke.el);
         return;
       }
-      drawCtx.save();
-      clipOutLauncher();
-      drawCtx.beginPath();
-      pts.forEach((p, i) => {
-        const x = p.x - window.scrollX;
-        const y = p.y - window.scrollY;
-        if (i === 0) drawCtx.moveTo(x, y);
-        else drawCtx.lineTo(x, y);
-      });
-      drawCtx.stroke();
-      drawCtx.restore();
+      const id = "mobius-erase-" + i;
+      const mask = svgEl("mask", Object.assign({ id, maskUnits: "userSpaceOnUse" }, box));
+      mask.appendChild(svgEl("rect", Object.assign({ fill: "#fff" }, box)));
+      stroke.el = strokePath(stroke, "#000");
+      mask.appendChild(stroke.el);
+      defs.appendChild(mask);
+      const masked = svgEl("g", { mask: "url(#" + id + ")" });
+      masked.appendChild(group);
+      group = masked;
     });
-    drawCtx.globalCompositeOperation = "source-over";
+    drawSvgEl.appendChild(group);
   }
 
   function onDrawStart(e) {
@@ -1431,15 +1624,15 @@
     drawRedoStack = []; // a fresh stroke retires whatever could have been redone
     refreshUndoRedo();
     // Captured, so a stroke that leaves the window still ends cleanly.
-    if (drawCanvas.setPointerCapture) drawCanvas.setPointerCapture(e.pointerId);
-    paintLastSegment(drawStroke);
+    if (drawInputEl.setPointerCapture) drawInputEl.setPointerCapture(e.pointerId);
+    renderStrokes();
   }
 
   function onDrawMove(e) {
     if (!drawStroke) return;
     e.preventDefault();
     drawStroke.points.push(docPoint(e));
-    paintLastSegment(drawStroke);
+    drawStroke.el.setAttribute("d", strokePathData(drawStroke.points));
   }
 
   function onDrawEnd() {
@@ -1449,14 +1642,14 @@
   function undoStroke() {
     if (!drawStrokes.length) return;
     drawRedoStack.push(drawStrokes.pop());
-    redrawStrokes();
+    renderStrokes();
     refreshUndoRedo();
   }
 
   function redoStroke() {
     if (!drawRedoStack.length) return;
     drawStrokes.push(drawRedoStack.pop());
-    redrawStrokes();
+    renderStrokes();
     refreshUndoRedo();
   }
 
@@ -1464,20 +1657,33 @@
   // disabled button - undoStroke()/redoStroke() already no-op on an empty
   // stack, so this is purely the visual signal.
   function refreshUndoRedo() {
-    if (undoBtnEl) undoBtnEl.style.opacity = drawStrokes.length ? "1" : "0.35";
-    if (redoBtnEl) redoBtnEl.style.opacity = drawRedoStack.length ? "1" : "0.35";
+    setToolEnabled(undoBtnEl, drawStrokes.length > 0);
+    setToolEnabled(redoBtnEl, drawRedoStack.length > 0);
   }
 
-  // Picking "unselect" leaves the canvas in place (marks stay visible) but
+  // Disabled looks and acts the part: dimmed, an ordinary cursor instead of
+  // the pointing hand, no hover lift, and announced as unavailable.
+  function setToolEnabled(btn, enabled) {
+    if (!btn) return;
+    btn.style.opacity = enabled ? "1" : "0.35";
+    btn.style.cursor = enabled ? "pointer" : "default";
+    btn.setAttribute("aria-disabled", String(!enabled));
+    if (!enabled) {
+      btn.style.transform = "";
+      btn.style.filter = "";
+    }
+  }
+
+  // Picking "unselect" leaves the layer in place (marks stay visible) but
   // gives up the pointer, so scrolling and clicking the page work normally.
   // Picking a color or the eraser takes the pointer back and starts capturing
   // strokes in that color/mode.
   function setDrawTool(tool, color) {
     drawTool = tool;
     if (tool === "pen" && color) drawColor = color;
-    if (drawCanvas) {
-      drawCanvas.style.pointerEvents = tool === "none" ? "none" : "auto";
-      drawCanvas.style.cursor = tool === "eraser" ? "cell" : "crosshair";
+    if (drawInputEl) {
+      drawInputEl.style.pointerEvents = tool === "none" ? "none" : "auto";
+      drawInputEl.style.cursor = tool === "eraser" ? "cell" : "crosshair";
     }
     refreshSwatches();
   }
@@ -1490,17 +1696,52 @@
     ["1", "2", "3", "+"],
     ["0", ".", "="],
   ];
-  const CALC_OP_FOR = { "÷": "/", "×": "*", "−": "-", "+": "+" };
-  const CALC_GLYPH = { "/": "÷", "*": "×", "-": "−", "+": "+", "^": "^" };
-  // Two columns of function keys, added beside the ordinary keypad in
+  // Three columns of function keys, added beside the ordinary keypad in
   // scientific mode - sized to exactly match its five rows.
   const SCI_KEYS = [
-    ["sin", "cos"],
-    ["tan", "log"],
-    ["ln", "√"],
-    ["x²", "xʸ"],
-    ["π", "e"],
+    ["(", ")", "Ans"],
+    ["sin", "cos", "tan"],
+    ["log", "ln", "√"],
+    ["x²", "xʸ", "1/x"],
+    ["π", "e", "n!"],
   ];
+  // What each scientific key types into the expression. Functions open their
+  // own parenthesis, as "sin(" does on a real scientific calculator.
+  const CALC_TOKEN_FOR = {
+    sin: "sin(",
+    cos: "cos(",
+    tan: "tan(",
+    log: "log(",
+    ln: "ln(",
+    "√": "√(",
+    "x²": "²",
+    "xʸ": "^",
+    "1/x": "⁻¹",
+    "n!": "!",
+  };
+  // Spoken names for keys whose label isn't a word a screen reader says well.
+  const CALC_KEY_NAMES = {
+    C: "Clear",
+    "⌫": "Backspace",
+    "±": "Change sign",
+    "÷": "Divide",
+    "×": "Multiply",
+    "−": "Minus",
+    "+": "Plus",
+    "=": "Equals",
+    ".": "Decimal point",
+    "√": "Square root",
+    "x²": "Square",
+    "xʸ": "Power",
+    "1/x": "Reciprocal",
+    "n!": "Factorial",
+    "π": "Pi",
+    "(": "Open bracket",
+    ")": "Close bracket",
+  };
+  const CALC_BINARY = ["+", "−", "×", "÷", "^"];
+  const CALC_POSTFIX = ["²", "⁻¹", "!"];
+  const CALC_CONSTANTS = ["π", "e", "Ans"];
   // Every key is this many px wide, basic or scientific, so switching modes
   // only adds columns - it never changes the size of a key that was already
   // there. The panel widths below are derived from it rather than guessed,
@@ -1513,7 +1754,7 @@
   const CALC_KEY_W = 44;
   const CALC_GRID_GAP = 3;
   const CALC_COLS = 4; // the ordinary keypad
-  const SCI_COLS = 2; // the extra function-key column
+  const SCI_COLS = 3; // the extra function-key columns
   const CALC_PANEL_PAD = 7; // matches calcPanelEl's own padding, below
   // calcPanelEl is set to boxSizing: border-box (Mobius's page CSS can't be
   // trusted not to reset that itself), so its declared width has to include
@@ -1533,24 +1774,35 @@
   const CALC_KEY_FOR = {
     "/": "÷",
     "*": "×",
+    x: "×",
     "-": "−",
     "+": "+",
+    "^": "xʸ",
+    "(": "(",
+    ")": ")",
+    "!": "n!",
     "=": "=",
     Enter: "=",
     Backspace: "⌫",
+    Delete: "C",
     c: "C",
     C: "C",
   };
-  const CALC_MAX_DIGITS = 14; // as many as the display holds
+  const CALC_MAX_DIGITS = 14; // per number, about as many as the display holds
 
-  let calcDisplay = null;
-  let calcPendingEl = null;
+  let calcDisplay = null; // the expression being typed, or a result
+  let calcHistoryEl = null; // above it: the expression a result came from
+  let calcPreviewEl = null; // below it: the result of what's typed so far
 
-  let calcAcc = null; // the running value
-  let calcOp = null; // the operator waiting on the next entry
-  let calcEntry = "0"; // what the display shows
-  let calcFresh = true; // the next digit starts a new number
-  let calcScientific = false; // whether the function-key column is showing
+  // Typed the way a phone or scientific calculator takes it: the whole
+  // expression builds up on screen and is only worked out on "=", with the
+  // usual precedence. Kept as tokens rather than a string so ⌫ takes back
+  // exactly one key press - "sin(" all at once, a number one digit at a time.
+  let calcTokens = [];
+  let calcAns = 0; // the last result, for the Ans key
+  let calcResult = null; // { value, expr } while a result is on screen
+  let calcError = null; // the expression that failed, while "Error" shows
+  let calcScientific = false; // whether the function-key columns are showing
 
   // The one button that was left after the header came off: switches between
   // the plain keypad and the wider scientific layout.
@@ -1561,9 +1813,10 @@
     const row = document.createElement("div");
     Object.assign(row.style, {
       display: "flex",
-      justifyContent: "flex-end",
-      marginBottom: "4px",
-      minHeight: "18px", // a real grab target even before anything's in it
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: "5px",
+      minHeight: "22px", // a real grab target even before anything's in it
       cursor: "grab",
     });
 
@@ -1582,17 +1835,22 @@
 
     const btn = document.createElement("div");
     Object.assign(btn.style, {
-      fontSize: "10px",
+      fontSize: "12px",
       fontWeight: "bold",
-      padding: "3px 7px",
-      borderRadius: "4px",
+      padding: "4px 10px",
+      borderRadius: CONTROL_RADIUS + "px",
       background: "rgba(255,255,255,0.14)",
       color: "#fff",
       cursor: "pointer",
       userSelect: "none",
     });
+    makeAccessible(btn);
     const renderLabel = () => {
       btn.textContent = calcScientific ? "123" : "fx";
+      btn.setAttribute(
+        "aria-label",
+        calcScientific ? "Switch to basic" : "Switch to scientific"
+      );
     };
     renderLabel();
 
@@ -1638,7 +1896,9 @@
         calcPanelEl.style.left = Math.round(newLeft) + "px";
       }
       positionToolbox(); // repositions the draw panel; re-clamps the calculator
-      if (calcPanelEl) calcPanelEl.focus({ preventScroll: true });
+      // Back to the panel after a mouse click, so typing keeps working. From
+      // the keyboard (detail 0) focus stays on the rebuilt toggle instead.
+      if (calcPanelEl && e.detail) calcPanelEl.focus({ preventScroll: true });
     });
 
     row.addEventListener("pointerdown", (e) => {
@@ -1648,8 +1908,21 @@
       startCalcDrag(e);
     });
 
-    row.appendChild(btn);
+    row.append(gripIcon(), btn);
     return row;
+  }
+
+  // Six dots at the strip's left end - the usual sign that it can be dragged.
+  function gripIcon() {
+    const svg = svgEl("svg", { width: "14", height: "9", viewBox: "0 0 14 9" });
+    [1.5, 7, 12.5].forEach((x) => {
+      [1.5, 7.5].forEach((y) => {
+        svg.appendChild(svgEl("circle", { cx: x, cy: y, r: "1.4", fill: "currentColor" }));
+      });
+    });
+    svg.style.opacity = "0.45";
+    svg.style.flex = "0 0 auto";
+    return svg;
   }
 
   // Rebuilds everything under the mode toggle - called on first open and
@@ -1679,27 +1952,32 @@
     const wrap = document.createElement("div");
     Object.assign(wrap.style, {
       background: "rgba(0,0,0,0.35)",
-      borderRadius: "5px",
+      borderRadius: CONTROL_RADIUS + "px",
       padding: "4px 7px 6px",
       marginBottom: "5px",
       textAlign: "right",
     });
-    calcPendingEl = document.createElement("div");
-    Object.assign(calcPendingEl.style, {
-      fontSize: "10px",
-      opacity: "0.55",
-      minHeight: "13px",
-      whiteSpace: "nowrap",
-      overflow: "hidden",
-    });
+    const smallLine = () => {
+      const line = document.createElement("div");
+      Object.assign(line.style, {
+        fontSize: "11px",
+        opacity: "0.55",
+        minHeight: "14px", // held open even when empty, so the panel doesn't jump
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+      });
+      return line;
+    };
+    calcHistoryEl = smallLine();
+    calcPreviewEl = smallLine();
     calcDisplay = document.createElement("div");
     Object.assign(calcDisplay.style, {
-      fontSize: "20px",
+      height: "26px",
+      lineHeight: "26px",
       whiteSpace: "nowrap",
-      overflow: "hidden",
-      textOverflow: "ellipsis",
+      overflow: "hidden", // scrolled to its end in code, so the newest input shows
     });
-    wrap.append(calcPendingEl, calcDisplay);
+    wrap.append(calcHistoryEl, calcDisplay, calcPreviewEl);
     return wrap;
   }
 
@@ -1721,13 +1999,23 @@
   }
 
   function calcKeyButton(key) {
+    // Four kinds, told apart at a glance: "=" in the accent, the operators
+    // tinted with it, the editing keys (C ⌫ ±) a lighter grey than digits.
     const isEquals = key === "=";
-    const tinted = !!CALC_OP_FOR[key] || key === "C" || key === "⌫" || key === "±";
+    const isOperator = CALC_BINARY.includes(key);
+    const isEdit = key === "C" || key === "⌫" || key === "±";
     const base = isEquals
       ? ACCENT
-      : tinted
+      : isOperator
+      ? "rgba(62,166,255,0.24)"
+      : isEdit
       ? "rgba(255,255,255,0.18)"
       : "rgba(255,255,255,0.1)";
+    const hover = isEquals
+      ? "#63b8ff"
+      : isOperator
+      ? "rgba(62,166,255,0.4)"
+      : "rgba(255,255,255,0.28)";
 
     const btn = document.createElement("div");
     btn.textContent = key;
@@ -1736,16 +2024,17 @@
       alignItems: "center",
       justifyContent: "center",
       height: "30px",
-      borderRadius: "5px",
+      borderRadius: CONTROL_RADIUS + "px",
       background: base,
       color: isEquals ? "#1a1a1a" : "#fff",
       fontSize: "14px",
       cursor: "pointer",
     });
     if (key === "0") btn.style.gridColumn = "span 2";
+    makeAccessible(btn, CALC_KEY_NAMES[key]);
 
     btn.addEventListener("mouseenter", () => {
-      btn.style.background = isEquals ? "#63b8ff" : "rgba(255,255,255,0.28)";
+      btn.style.background = hover;
     });
     btn.addEventListener("mouseleave", () => {
       btn.style.background = base;
@@ -1755,7 +2044,8 @@
       e.stopPropagation();
       calcKey(key);
       updateCalcDisplay();
-      if (calcPanelEl) calcPanelEl.focus({ preventScroll: true });
+      // After a mouse click only: from the keyboard, focus stays on the key.
+      if (calcPanelEl && e.detail) calcPanelEl.focus({ preventScroll: true });
     });
     return btn;
   }
@@ -1786,12 +2076,13 @@
       alignItems: "center",
       justifyContent: "center",
       height: "30px",
-      borderRadius: "5px",
+      borderRadius: CONTROL_RADIUS + "px",
       background: base,
       color: "#fff",
       fontSize: "12px",
       cursor: "pointer",
     });
+    makeAccessible(btn, CALC_KEY_NAMES[label]);
     btn.addEventListener("mouseenter", () => {
       btn.style.background = "rgba(255,255,255,0.3)";
     });
@@ -1801,69 +2092,27 @@
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      sciKey(label);
+      calcKey(label);
       updateCalcDisplay();
-      if (calcPanelEl) calcPanelEl.focus({ preventScroll: true });
+      if (calcPanelEl && e.detail) calcPanelEl.focus({ preventScroll: true });
     });
     return btn;
   }
 
   // Degrees, not radians - what most people expect typing 30 into "sin".
+  // Rounded so sin(180) is 0 rather than 1.2e-16, and so tan(90) divides by
+  // an exact 0 and reports an error instead of a huge number.
   const DEG_TO_RAD = Math.PI / 180;
-
-  function sciKey(label) {
-    // Same recovery as calcKey(): any key but a reset starts over from a
-    // failed calculation.
-    if (calcEntry === "Error") calcReset();
-    switch (label) {
-      case "sin":
-        calcUnary((v) => Math.sin(v * DEG_TO_RAD));
-        break;
-      case "cos":
-        calcUnary((v) => Math.cos(v * DEG_TO_RAD));
-        break;
-      case "tan":
-        calcUnary((v) => Math.tan(v * DEG_TO_RAD));
-        break;
-      case "log":
-        calcUnary((v) => Math.log10(v));
-        break;
-      case "ln":
-        calcUnary((v) => Math.log(v));
-        break;
-      case "√":
-        calcUnary((v) => Math.sqrt(v));
-        break;
-      case "x²":
-        calcUnary((v) => v * v);
-        break;
-      case "xʸ":
-        // A binary op, same infrastructure as +/-/×/÷: pressed now, applied
-        // once the exponent is typed and "=" (or the next op) is pressed.
-        calcOperator("^");
-        break;
-      case "π":
-        calcConstant(Math.PI);
-        break;
-      case "e":
-        calcConstant(Math.E);
-        break;
-    }
-  }
-
-  // Applied immediately to whatever's on screen - like pressing "=" on a
-  // single operand, the result becomes the new entry.
-  function calcUnary(fn) {
-    calcEntry = calcFormat(fn(Number(calcEntry)));
-    calcFresh = true;
-  }
-
-  // Drops a constant onto the display in place of whatever was there,
-  // exactly as if it had just been typed.
-  function calcConstant(value) {
-    calcEntry = calcFormat(value);
-    calcFresh = true;
-  }
+  const calcTrig = (fn) => (deg) => Math.round(fn(deg * DEG_TO_RAD) * 1e12) / 1e12;
+  const CALC_FUNCTIONS = {
+    "(": (v) => v,
+    "sin(": calcTrig(Math.sin),
+    "cos(": calcTrig(Math.cos),
+    "tan(": (v) => calcTrig(Math.sin)(v) / calcTrig(Math.cos)(v),
+    "log(": Math.log10,
+    "ln(": Math.log,
+    "√(": Math.sqrt,
+  };
 
   function onCalcKeydown(e) {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -1875,117 +2124,367 @@
     updateCalcDisplay();
   }
 
-  function calcKey(key) {
-    // Any key but a reset starts over from a failed sum.
-    if (calcEntry === "Error" && key !== "C") calcReset();
-    if (/^[0-9]$/.test(key)) calcDigit(key);
-    else if (key === ".") calcDecimal();
-    else if (CALC_OP_FOR[key]) calcOperator(CALC_OP_FOR[key]);
-    else if (key === "=") calcEquals();
-    else if (key === "C") calcReset();
-    else if (key === "⌫") calcBackspace();
-    else if (key === "±") calcNegate();
+  const calcIsDigit = (t) => /^[0-9.]$/.test(t);
+  // A carried-over result too long for digit tokens, like "1.5e-7".
+  const calcIsLiteral = (t) => /^[0-9.]+e/.test(t);
+  const calcLast = () => calcTokens[calcTokens.length - 1];
+
+  // Whether what's typed so far ends in something an operator can follow.
+  function calcEndsWithValue() {
+    const t = calcLast();
+    return (
+      t !== undefined &&
+      (calcIsDigit(t) ||
+        calcIsLiteral(t) ||
+        t === ")" ||
+        CALC_POSTFIX.includes(t) ||
+        CALC_CONSTANTS.includes(t))
+    );
   }
 
-  function calcReset() {
-    calcAcc = null;
-    calcOp = null;
-    calcEntry = "0";
-    calcFresh = true;
+  function calcOpenParens() {
+    let open = 0;
+    calcTokens.forEach((t) => {
+      if (t.endsWith("(")) open++;
+      else if (t === ")") open--;
+    });
+    return open;
   }
 
-  function calcDigit(d) {
-    if (calcFresh) {
-      calcEntry = d;
-      calcFresh = false;
-    } else if (calcEntry === "0") {
-      calcEntry = d;
-    } else if (calcEntry.replace(/[^0-9]/g, "").length < CALC_MAX_DIGITS) {
-      calcEntry += d;
+  function calcTrailingNumber() {
+    let i = calcTokens.length;
+    while (i > 0 && calcIsDigit(calcTokens[i - 1])) i--;
+    return calcTokens.slice(i);
+  }
+
+  // A result as tokens to keep typing after. Negatives are bracketed so a
+  // following x² or xʸ applies to the whole number, as it did on screen.
+  function calcValueTokens(value, bracketNegative) {
+    const text = String(value);
+    const neg = text.charAt(0) === "-";
+    const body = neg ? text.slice(1) : text;
+    const digits = body.indexOf("e") >= 0 ? [body] : body.split("");
+    if (!neg) return digits;
+    return bracketNegative ? ["(", "−"].concat(digits, [")"]) : ["−"].concat(digits);
+  }
+
+  // A key pressed while a result is showing: operators and x², 1/x, n! carry
+  // on from the result, a function wraps it, anything else starts afresh.
+  // Returns true if that already took care of the key.
+  function calcLeaveResult(token) {
+    if (!calcResult) return false;
+    const ans = calcValueTokens(calcResult.value, true);
+    calcResult = null;
+    calcTokens = [];
+    if (CALC_BINARY.includes(token) || CALC_POSTFIX.includes(token)) {
+      calcTokens = ans;
+    } else if (token.endsWith("(") && token !== "(") {
+      calcTokens = [token].concat(ans, [")"]);
+      return true;
+    }
+    return false;
+  }
+
+  function calcKey(label) {
+    if (calcError !== null) {
+      // Any key clears the error; C and ⌫ do nothing more than that.
+      calcError = null;
+      calcTokens = [];
+      if (label === "C" || label === "⌫") return;
+    }
+    if (/^[0-9]$/.test(label)) return calcTypeDigit(label);
+    if (label === ".") return calcTypeDecimal();
+    if (label === "=") return calcEquals();
+    if (label === "⌫") return calcBackspace();
+    if (label === "±") return calcNegate();
+    if (label === "C") {
+      calcTokens = [];
+      calcResult = null;
+      return; // Ans is kept, as a real calculator keeps it
+    }
+    const token = CALC_TOKEN_FOR[label] || label;
+    if (calcLeaveResult(token)) return;
+    if (CALC_BINARY.includes(token)) calcTypeOperator(token);
+    else if (CALC_POSTFIX.includes(token)) {
+      if (calcEndsWithValue()) calcTokens.push(token);
+    } else if (token === ")") {
+      if (calcOpenParens() > 0 && calcEndsWithValue()) calcTokens.push(token);
+    } else {
+      // "(", a function or a constant. Straight after a value it means
+      // multiplication, so 2π types as 2×π.
+      if (calcEndsWithValue()) calcTokens.push("×");
+      calcTokens.push(token);
     }
   }
 
-  function calcDecimal() {
-    if (calcFresh) {
-      calcEntry = "0.";
-      calcFresh = false;
-    } else if (calcEntry.indexOf(".") < 0) {
-      calcEntry += ".";
+  function calcTypeDigit(d) {
+    calcLeaveResult(d);
+    const last = calcLast();
+    if (last !== undefined && !calcIsDigit(last) && calcEndsWithValue()) {
+      calcTokens.push("×"); // after ")", π, x² and so on
     }
+    const num = calcTrailingNumber();
+    if (num.join("") === "0") calcTokens[calcTokens.length - 1] = d; // no leading zeros
+    else if (num.filter((c) => c !== ".").length < CALC_MAX_DIGITS) calcTokens.push(d);
   }
 
-  function calcNegate() {
-    if (calcEntry === "0") return;
-    calcEntry =
-      calcEntry.charAt(0) === "-" ? calcEntry.slice(1) : "-" + calcEntry;
+  function calcTypeDecimal() {
+    calcLeaveResult(".");
+    const num = calcTrailingNumber();
+    if (num.indexOf(".") >= 0) return;
+    if (!num.length) {
+      if (calcEndsWithValue()) calcTokens.push("×");
+      calcTokens.push("0");
+    }
+    calcTokens.push(".");
   }
 
+  // A second operator replaces the first, so a mistyped + can be corrected
+  // by just pressing ×. The exception is a minus after ×, ÷, ^ or an opening
+  // bracket, which makes the next number negative instead.
+  function calcTypeOperator(op) {
+    const last = calcLast();
+    if (op === "−" && (last === undefined || last.endsWith("(") || /^[×÷^]$/.test(last))) {
+      calcTokens.push(op);
+      return;
+    }
+    while (CALC_BINARY.includes(calcLast())) calcTokens.pop();
+    if (calcEndsWithValue()) calcTokens.push(op);
+  }
+
+  // ⌫ on a result turns it back into something editable, digit by digit.
   function calcBackspace() {
-    if (calcFresh) return; // nothing typed yet to take back
-    calcEntry = calcEntry.slice(0, -1);
-    if (calcEntry === "" || calcEntry === "-") {
-      calcEntry = "0";
-      calcFresh = true;
+    if (calcResult) {
+      calcTokens = calcValueTokens(calcResult.value, false);
+      calcResult = null;
     }
+    calcTokens.pop();
   }
 
-  function calcOperator(op) {
-    if (!calcFresh) {
-      // A number is waiting: fold it into the running value, so 2+3+ shows 5.
-      calcAcc =
-        calcOp === null
-          ? Number(calcEntry)
-          : calcApply(calcAcc, calcOp, Number(calcEntry));
-      calcEntry = calcFormat(calcAcc);
-    } else if (calcAcc === null) {
-      calcAcc = Number(calcEntry); // chaining straight on from a result
+  // Where the operand ending at `end` starts: a number, a constant, or a
+  // whole bracket, with any x²/1/x/n! after it. `end` itself means there's
+  // no operand there yet.
+  function calcOperandStart(end) {
+    let i = end;
+    while (i > 0 && CALC_POSTFIX.includes(calcTokens[i - 1])) i--;
+    const t = calcTokens[i - 1];
+    if (t === undefined) return end;
+    if (calcIsDigit(t)) {
+      while (i > 0 && calcIsDigit(calcTokens[i - 1])) i--;
+      return i;
     }
-    // Pressing another operator with nothing entered just changes this one.
-    calcOp = calcEntry === "Error" ? null : op;
-    calcFresh = true;
+    if (calcIsLiteral(t) || CALC_CONSTANTS.includes(t)) return i - 1;
+    if (t === ")") {
+      let depth = 0;
+      for (let j = i - 1; j >= 0; j--) {
+        if (calcTokens[j] === ")") depth++;
+        else if (calcTokens[j].endsWith("(") && --depth === 0) return j;
+      }
+    }
+    return end;
+  }
+
+  // Flips the sign of the number being typed, as ± does on a real
+  // calculator, rather than of the whole expression.
+  function calcNegate() {
+    if (calcResult) {
+      calcResult = { value: -calcResult.value, expr: null };
+      calcAns = calcResult.value;
+      return;
+    }
+    const end = calcTokens.length;
+    const start = calcOperandStart(end);
+    const last = calcLast();
+    if (start === end) {
+      // Nothing to flip yet: start the next number off negative (or undo that).
+      if (last === "−" && calcOperandStart(end - 1) === end - 1) calcTokens.pop();
+      else if (last === undefined || last.endsWith("(") || CALC_BINARY.includes(last)) {
+        calcTokens.push("−");
+      }
+      return;
+    }
+    const prev = calcTokens[start - 1];
+    const before = calcTokens[start - 2];
+    const unary =
+      prev === "−" &&
+      (before === undefined || before.endsWith("(") || CALC_BINARY.includes(before));
+    if (unary) calcTokens.splice(start - 1, 1);
+    else if (prev === "−") calcTokens[start - 1] = "+";
+    else if (prev === "+") calcTokens[start - 1] = "−";
+    else calcTokens.splice(start, 0, "−");
+  }
+
+  // What "=" works out: a trailing operator or empty bracket is ignored, and
+  // unclosed brackets are closed, so "5+" gives 5 and "√(9" gives 3.
+  function calcCompleted() {
+    const tokens = calcTokens.slice();
+    while (
+      tokens.length &&
+      (CALC_BINARY.includes(tokens[tokens.length - 1]) ||
+        tokens[tokens.length - 1].endsWith("("))
+    ) {
+      tokens.pop();
+    }
+    let open = 0;
+    tokens.forEach((t) => {
+      if (t.endsWith("(")) open++;
+      else if (t === ")") open--;
+    });
+    for (; open > 0; open--) tokens.push(")");
+    return tokens;
   }
 
   function calcEquals() {
-    if (calcOp === null) {
-      calcFresh = true;
+    if (calcResult || !calcTokens.length) return;
+    const tokens = calcCompleted();
+    if (!tokens.length) return;
+    const expr = tokens.join("");
+    const value = calcEvaluate(tokens);
+    if (value === null) {
+      calcError = expr;
       return;
     }
-    calcEntry = calcFormat(calcApply(calcAcc, calcOp, Number(calcEntry)));
-    calcAcc = null;
-    calcOp = null;
-    calcFresh = true;
+    calcAns = value;
+    calcResult = { value, expr };
+    calcTokens = [];
   }
 
-  function calcApply(a, op, b) {
-    switch (op) {
-      case "+":
-        return a + b;
-      case "-":
-        return a - b;
-      case "*":
-        return a * b;
-      case "/":
-        return b === 0 ? NaN : a / b;
-      case "^":
-        return Math.pow(a, b);
-    }
-    return b;
+  function calcFactorial(n) {
+    if (n < 0 || n > 170 || !Number.isInteger(n)) return NaN;
+    let out = 1;
+    for (let i = 2; i <= n; i++) out *= i;
+    return out;
+  }
+
+  // Recursive descent over the tokens, loosest-binding first: + −, then × ÷,
+  // then a leading minus, then ^ (right to left, so 2^3^2 is 2^9), then x²,
+  // 1/x and n!. So −2² is −4 and 2+3×4 is 14, as on a scientific calculator.
+  // Returns null for anything that doesn't come out as a finite number.
+  function calcEvaluate(tokens) {
+    const items = [];
+    let digits = "";
+    tokens.forEach((t) => {
+      if (calcIsDigit(t)) {
+        digits += t;
+        return;
+      }
+      if (digits) items.push(Number(digits));
+      digits = "";
+      items.push(calcIsLiteral(t) ? Number(t) : t);
+    });
+    if (digits) items.push(Number(digits));
+
+    let pos = 0;
+    const peek = () => items[pos];
+    const sum = () => {
+      let v = product();
+      while (peek() === "+" || peek() === "−") {
+        const op = items[pos++];
+        const r = product();
+        v = op === "+" ? v + r : v - r;
+      }
+      return v;
+    };
+    const product = () => {
+      let v = signed();
+      while (peek() === "×" || peek() === "÷") {
+        const op = items[pos++];
+        const r = signed();
+        v = op === "×" ? v * r : v / r;
+      }
+      return v;
+    };
+    const signed = () => {
+      if (peek() !== "−") return power();
+      pos++;
+      return -signed();
+    };
+    const power = () => {
+      const base = postfix();
+      if (peek() !== "^") return base;
+      pos++;
+      return Math.pow(base, signed());
+    };
+    const postfix = () => {
+      let v = primary();
+      while (CALC_POSTFIX.includes(peek())) {
+        const op = items[pos++];
+        v = op === "²" ? v * v : op === "⁻¹" ? 1 / v : calcFactorial(v);
+      }
+      return v;
+    };
+    const primary = () => {
+      const t = items[pos++];
+      if (typeof t === "number") return t;
+      if (t === "π") return Math.PI;
+      if (t === "e") return Math.E;
+      if (t === "Ans") return calcAns;
+      if (CALC_FUNCTIONS[t]) {
+        const v = sum();
+        if (items[pos++] !== ")") return NaN;
+        return CALC_FUNCTIONS[t](v);
+      }
+      return NaN;
+    };
+
+    const value = sum();
+    if (pos !== items.length || !isFinite(value)) return null;
+    // 15 significant digits: every digit a double holds exactly, while still
+    // cleaning float noise like 0.1+0.2 up to 0.3.
+    return Number(value.toPrecision(15));
+  }
+
+  function calcReset() {
+    calcTokens = [];
+    calcAns = 0;
+    calcResult = null;
+    calcError = null;
   }
 
   function calcFormat(n) {
-    if (!isFinite(n)) return "Error";
-    // Round off float noise (0.1 + 0.2) without touching legitimate precision.
-    const rounded = Math.round(n * 1e10) / 1e10;
-    return String(isFinite(rounded) ? rounded : n);
+    return String(n).replace(/-/g, "−");
   }
 
   function updateCalcDisplay() {
     if (!calcDisplay) return;
-    calcDisplay.textContent = calcEntry;
-    calcPendingEl.textContent =
-      calcOp && calcAcc !== null
-        ? calcFormat(calcAcc) + " " + CALC_GLYPH[calcOp]
-        : "";
+    let main;
+    let history = "";
+    let preview = "";
+    let unclosed = 0;
+    if (calcError !== null) {
+      main = "Error";
+      history = calcError;
+    } else if (calcResult) {
+      main = calcFormat(calcResult.value);
+      if (calcResult.expr !== null) history = calcResult.expr + " =";
+    } else {
+      main = calcTokens.join("") || "0";
+      unclosed = Math.max(0, calcOpenParens());
+      // A plain number previews as itself, which would just be noise.
+      const done = calcCompleted();
+      if (done.length && !done.every(calcIsDigit)) {
+        const value = calcEvaluate(done);
+        if (value !== null) preview = "= " + calcFormat(value);
+      }
+    }
+    calcHistoryEl.textContent = history;
+    calcPreviewEl.textContent = preview;
+    calcDisplay.textContent = main;
+    // Brackets "=" will close for you, shown faintly so it's clear they're
+    // implied rather than typed.
+    if (unclosed) {
+      const ghost = document.createElement("span");
+      ghost.textContent = ")".repeat(unclosed);
+      ghost.style.opacity = "0.35";
+      calcDisplay.appendChild(ghost);
+    }
+    // Shrinks a little before running out of room, then keeps the end of
+    // the expression - the part being typed - in view.
+    calcDisplay.style.fontSize = "20px";
+    if (calcDisplay.scrollWidth > calcDisplay.clientWidth) {
+      calcDisplay.style.fontSize = "15px";
+    }
+    calcDisplay.scrollLeft = calcDisplay.scrollWidth;
   }
 
   // --- Pause detection: jump between sentences ---
@@ -2178,23 +2677,31 @@
     if (menuAnchor && !menuAnchor.isConnected) closeMenu();
     else positionMenu(); // catches layout shifts that aren't scroll or resize
     if (toolboxAnchor && !toolboxAnchor.isConnected) closeToolbox();
-    else positionToolbox();
+    else placeLauncher(); // catches header/content layout shifts
   }, 1500);
 
   // The seek bar is fluid, so the docked controls need re-laying-out.
   window.addEventListener("resize", () => {
     dockIntoPlayerBar();
     positionMenu(true); // viewport height changed, so re-test above vs. below
-    positionToolbox();
-    sizeDrawCanvas(); // a new viewport size needs a new backing store
+    placeLauncher(); // also repositions the toolbox under it
   });
 
   document.addEventListener(
     "keydown",
     (e) => {
       if (e.key === "Escape") {
+        // Focus goes back to the button that opened what's closing, rather
+        // than being dropped to the top of the page along with it.
+        const active = document.activeElement;
+        const inToolbox = [drawPanelEl, calcPanelEl].some((p) => p && p.contains(active));
+        const returnTo =
+          (menuEl && menuEl.contains(active) && menuAnchor) ||
+          (inToolbox && toolboxAnchor) ||
+          null;
         closeMenu();
         closeToolbox();
+        if (returnTo) returnTo.focus({ preventScroll: true });
         return;
       }
       const arrow = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
@@ -2216,6 +2723,7 @@
   );
 
   function init() {
+    ensureStyles();
     applyRateToAll();
     ensureToolbar();
     startObserving();

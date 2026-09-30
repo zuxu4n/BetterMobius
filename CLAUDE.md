@@ -1,9 +1,9 @@
 # Working in this project
 
 An unpacked Chrome extension (MV3) for Möbius lecture pages. One content script,
-no build step, no dependencies, no package.json, **not a git repo** — edits are
-the only copy, so save a backup outside this folder before deleting anything
-large. `README.md` covers what the extension does and how it works.
+no build step, no dependencies, no package.json. It's a git repo pushed to
+https://github.com/zuxu4n/BetterMobius (remote `bettermobius`), so uncommitted
+edits are the only copy of themselves — commit before anything risky. `README.md` covers what the extension does and how it works.
 
 ## Verifying a change
 
@@ -45,19 +45,26 @@ answers.
 - The mutation observer reacts to child-list changes. Anything that rebuilds
   nodes during a layout pass will trigger another one — write styles on every
   pass, but only rebuild nodes when what they show actually changes.
+- Buttons are `div`s made accessible by `makeAccessible()` (role, label,
+  Tab, Enter/Space). Any new button should go through it too. The focus ring
+  is the one rule in the injected `#mobius-styles` stylesheet, since inline
+  styles can't express `:focus-visible`. Click handlers that refocus a panel
+  check `e.detail` so keyboard presses (detail 0) keep focus where it is.
 - Never trust the inherited `box-sizing` on an injected element. Any element
   that combines a declared `width`/`height` with `padding` needs an explicit
   `boxSizing`, because the host page may reset it globally (a common
   `*{box-sizing:border-box}` rule silently ate into the calculator's padding
   and clipped its rightmost keys until this was made explicit). A plain mock
   page won't catch this — it needs a page with that reset applied to surface.
-- Document-coordinate panels (the calculator, draw-tools panel, settings menu)
-  hide themselves once their anchor scrolls offscreen. Repositioning code must
-  still run while hidden, not early-return, or a change made offscreen (e.g.
-  toggling the calculator's scientific mode, which changes its width) leaves
-  it at a stale position when it scrolls back into view instead of the
-  correct one. Reproducing this needs an actual scroll between the change and
-  the re-appearance — a same-tick test won't catch it.
+- The toolbox launcher, draw-tools panel and docked calculator are
+  `position: fixed`: the launcher is pinned to the viewport and the panels
+  hang off it, while drawn strokes are stored in document coordinates and
+  scroll with the page. The settings menu is still placed in document
+  coordinates. Any panel that hides itself when its anchor scrolls offscreen
+  must keep repositioning while hidden, not early-return, or a change made
+  offscreen leaves it at a stale position when it scrolls back into view.
+  Reproducing that needs an actual scroll between the change and the
+  re-appearance — a same-tick test won't catch it.
 
 ## Decisions to respect
 
