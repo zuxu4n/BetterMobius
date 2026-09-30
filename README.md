@@ -1,14 +1,32 @@
-# Möbius+
+# BetterMobius
 
 A Chrome extension that adds playback controls to narrated Möbius (`mobius.cloud`)
-lecture slides, which ship with no speed option of their own.
+lecture slides, which ship with no speed option of their own, plus a drawing
+layer and a calculator.
+
+*Unofficial: not affiliated with, endorsed by or connected to DigitalEd or
+Möbius.*
+
+**Privacy:** it collects nothing. No data is stored, sent anywhere or shared,
+and it asks for no permissions. See [PRIVACY.md](PRIVACY.md).
 
 ## Install
+
+From the Chrome Web Store (link coming once it's published), or from source:
 
 1. Open `chrome://extensions` and turn on **Developer mode**.
 2. Choose **Load unpacked** and select this folder.
 3. Open a lecture page. After any change to the files here, press **reload** on
    the extension card — refreshing the page alone won't pick it up.
+
+## Publishing
+
+`./scripts/package.sh` checks the code and builds the upload zip in `dist/`,
+containing only what the extension needs (`manifest.json`, `content.js`,
+`icons/`). For an update, raise `version` in `manifest.json` first — the store
+rejects a version it has already seen. Paste-ready listing text is in
+[store/LISTING.md](store/LISTING.md), and `./scripts/screenshots.sh` renders
+the listing images into `store/`.
 
 ## What it does
 

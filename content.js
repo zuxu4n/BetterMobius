@@ -1,4 +1,4 @@
-// Möbius+
+// BetterMobius - an unofficial helper for Möbius lecture pages.
 // Applies a chosen playback rate to every <audio>/<video> element on the page
 // (Mobius narrates slides with per-slide HTML5 <audio> elements via jPlayer).
 // Docks a gear button into the jPlayer bar, to the right of the current-time/
@@ -47,7 +47,7 @@
   const LAUNCHER_MARGIN_GAP = 16; // from the content's right edge, when in the margin
   const SWATCH_SIZE = 28; // every circle in the draw-tools column
   const TOOL_ICON_SIZE = 18; // the icon inside each of those circles
-  const TOOL_GAP = 6; // between circles in that column
+  const TOOL_GAP = 8; // between circles in that column
   // Launcher to the column's first circle: roomier than TOOL_GAP, since the
   // open launcher's 3px ring eats into it and the launcher is a different kind
   // of button from the tools under it.

@@ -1,0 +1,145 @@
+<!doctype html>
+<!--
+  A stand-in lecture page for the store screenshots: the same shape as a
+  Möbius page (#main > #top + #inner, a jPlayer-style bar) with made-up
+  content, so no real course material or Möbius branding ends up in the
+  listing. Loads the real content.js. ?shot=speed|draw|calc sets up each
+  screenshot; scripts/screenshots.sh renders them.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>BetterMobius demo</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: #f5f6f8; color: #222; }
+  #top { background: #fff; border-bottom: 1px solid #e2e4e8; padding: 18px 0; }
+  #top .wrap { width: 970px; margin: 0 auto; display: flex; align-items: baseline; gap: 14px; }
+  #top .course { font-weight: bold; font-size: 15px; color: #4a4f57; }
+  #top .crumb { font-size: 13px; color: #8a9099; }
+  #top h1 { width: 970px; margin: 8px auto 0; font-size: 22px; font-weight: normal; }
+  #inner { width: 970px; margin: 0 auto; padding-top: 14px; }
+  .slide { background: #fff; border: 1px solid #e2e4e8; border-radius: 4px; height: 430px;
+           display: flex; align-items: center; padding: 0 56px; gap: 48px; }
+  .slide h2 { font-size: 30px; margin: 0 0 18px; color: #1f3b5a; }
+  .slide ul { margin: 0; padding-left: 20px; font-size: 18px; line-height: 1.7; color: #333; }
+  .jp-gui { position: relative; height: 42px; background: #2b2d31; border-radius: 4px; margin-top: 10px; }
+  .jp-play { position: absolute; left: 12px; top: 11px; width: 20px; height: 20px; border-radius: 50%; background: #e6e6e6; }
+  .jp-play::after { content: ""; position: absolute; left: 8px; top: 5px; border-left: 7px solid #2b2d31;
+                    border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+  .jp-progress { position: absolute; left: 46px; top: 18px; width: 700px; height: 6px; background: #55585e; border-radius: 3px; }
+  .seek-bar { width: 100%; height: 100%; }
+  .seek-bar .done { width: 34%; height: 100%; background: #9aa3ad; border-radius: 3px; }
+  .time-holder { position: absolute; left: 760px; top: 13px; color: #ddd; font-size: 12px; }
+  .jp-volume-bar { position: absolute; right: 16px; top: 18px; width: 70px; height: 6px; background: #8a8d93; border-radius: 3px; }
+  .notes { margin: 18px 0 40px; font-size: 15px; line-height: 1.6; color: #444; }
+</style>
+</head>
+<body>
+<div id="main">
+  <div id="top">
+    <div class="wrap"><span class="course">ECON 101</span><span class="crumb">Module 2 · Markets</span></div>
+    <h1>2.1 Supply and Demand</h1>
+  </div>
+  <div id="inner">
+    <div class="slide">
+      <div>
+        <h2>The law of demand</h2>
+        <ul>
+          <li>As price rises, quantity demanded falls</li>
+          <li>Holding everything else constant</li>
+          <li>A change in price moves along the curve</li>
+          <li>Other changes shift the whole curve</li>
+        </ul>
+      </div>
+      <svg width="300" height="300" viewBox="0 0 300 300" aria-hidden="true">
+        <line x1="40" y1="20" x2="40" y2="260" stroke="#333" stroke-width="2"/>
+        <line x1="40" y1="260" x2="280" y2="260" stroke="#333" stroke-width="2"/>
+        <path d="M60 50 C 120 130, 170 190, 265 235" fill="none" stroke="#2b6cb0" stroke-width="4"/>
+        <text x="12" y="30" font-size="14" fill="#555">P</text>
+        <text x="270" y="282" font-size="14" fill="#555">Q</text>
+        <text x="240" y="222" font-size="15" fill="#2b6cb0">D</text>
+      </svg>
+    </div>
+    <div class="jp-gui jp-interface">
+      <div class="jp-play"></div>
+      <div class="jp-progress"><div class="seek-bar"><div class="done"></div></div></div>
+      <div class="time-holder">1:12 / 3:30</div>
+      <div class="jp-volume-bar"></div>
+    </div>
+    <audio id="jp_audio_0"></audio>
+    <p class="notes">Demand describes how much of a good buyers are willing and able to purchase at each price.
+      The demand curve slopes downward: at lower prices, buyers purchase more.</p>
+  </div>
+</div>
+<script>
+  // No open animations: a screenshot would catch the panels half faded in.
+  Element.prototype.animate = undefined;
+</script>
+<script src="../content.js"></script>
+<script>
+  // Synthetic pointer events have no real pointer to capture.
+  Element.prototype.setPointerCapture = function () {};
+
+  const shot = new URLSearchParams(location.search).get("shot");
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const byText = (root, text) =>
+    [...root.querySelectorAll(".mobius-focusable")].find((el) => el.textContent.includes(text));
+
+  async function setUp() {
+    await wait(1200); // the gear docks on a timer
+    if (shot === "speed") {
+      document.querySelector(".mobius-speed-badge").click();
+      byText(document.querySelector(".mobius-speed-menu"), "Playback speed").click();
+      byText(document.querySelector(".mobius-speed-menu"), "1.5x").click();
+      document.querySelector(".mobius-speed-badge").click();
+      byText(document.querySelector(".mobius-speed-menu"), "Playback speed").click();
+    }
+    if (shot === "draw" || shot === "calc") {
+      document.querySelector(".mobius-toolbox-launcher").click();
+      await wait(50);
+      const tools = document.querySelector(".mobius-draw-tools");
+      const input = document.querySelector(".mobius-draw-input");
+      const stroke = (points) => {
+        const ev = (type, [x, y]) =>
+          input.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerType: "mouse", button: 0, bubbles: true }));
+        ev("pointerdown", points[0]);
+        points.slice(1).forEach((p) => ev("pointermove", p));
+        ev("pointerup", points[points.length - 1]);
+      };
+      const curve = (cx, cy, rx, ry, from, to) => {
+        const pts = [];
+        for (let a = from; a <= to; a += 0.12) pts.push([cx + rx * Math.cos(a), cy + ry * Math.sin(a)]);
+        return pts;
+      };
+      tools.querySelector('[aria-label="Red pen"]').click();
+      // Circle the heading, underline "quantity demanded falls", and point
+      // an arrow at the curve.
+      stroke(curve(347, 246, 158, 32, -Math.PI * 0.97, Math.PI * 1.08));
+      stroke([[348, 310], [440, 312], [542, 309]]);
+      tools.querySelector('[aria-label="Blue pen"]').click();
+      stroke([[985, 225], [940, 262], [880, 310]]);
+      stroke([[885, 288], [879, 311], [903, 309]]);
+      tools.querySelector('[aria-label="Stop drawing"]').click();
+      if (shot === "calc") {
+        tools.querySelector('[aria-label="Calculator"]').click();
+        const calc = document.querySelector(".mobius-calculator");
+        byText(calc, "fx").click();
+        const type = (keys) =>
+          keys.forEach((k) => calc.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true })));
+        type(["(", "4", "0", "-", "2", "5", ")", "/"]);
+        byText(calc, "√").click();
+        type(["9", ")"]);
+      }
+    }
+    // Scripted clicks look like keyboard presses (event.detail is 0), so the
+    // extension moved focus into what they opened; a mouse user wouldn't
+    // see that focus ring.
+    if (document.activeElement) document.activeElement.blur();
+    await wait(200);
+    document.title = "ready";
+  }
+  setUp();
+</script>
+</body>
+</html>

@@ -33,6 +33,23 @@ out of `content.js` by name and running it under `node` is faster than the
 browser, and lets you measure accuracy against generated audio with known
 answers.
 
+## Publishing (Chrome Web Store)
+
+- `./scripts/package.sh` checks the code and the store's manifest limits
+  (description ≤ 132 characters, version format, icons present), then builds
+  `dist/bettermobius-<version>.zip` with only `manifest.json`, `content.js`
+  and `icons/`. Raise `version` before every upload.
+- `./scripts/screenshots.sh` renders the listing images in `store/` from
+  `store/demo.html` (made-up lecture content running the real `content.js`)
+  and `store/promo-tile.html`. Re-run it after visible UI changes.
+  `store/demo.html` is a kept asset, unlike the throwaway mock pages above.
+- `store/LISTING.md` holds the paste-ready listing and privacy-form text, and
+  `PRIVACY.md` is the privacy policy the listing links to. Keep both true to
+  what the code does. The listing promises that nothing is collected, stored
+  or sent anywhere.
+- The name is **BetterMobius**, always presented as unofficial. Keep the
+  Möbius/DigitalEd logo and real course content out of the listing.
+
 ## Gotchas
 
 - **Chrome caches the content script.** Changes need **reload** on the extension
